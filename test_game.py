@@ -74,6 +74,10 @@ def play_random_hands(n_hands=3000, seed=1):
             if random.random() < 0.01:          # buy-ins at random moments, mid-hand too
                 g.rebuy(random.choice(players))
                 total += STARTING_CHIPS
+            if random.random() < 0.005:         # cash-outs too
+                q = random.choice(players)
+                if not (q.cashed_out or q.pending_cashout):
+                    g.cash_out(q)
             r = random.random()
             if r < 0.15 and not lg['canCheck']:
                 g.act(p, 'fold')
@@ -102,7 +106,10 @@ def play_random_hands(n_hands=3000, seed=1):
             g.finish_declare()
         assert g.phase == 'handover'
         assert all(p.pending_buyins == 0 for p in players)
-        assert sum(p.chips for p in players) == total, 'chips not conserved'
+        assert all(not p.pending_cashout for p in players)
+        assert sum(p.chips + p.buyout for p in players) == total, 'chips not conserved'
+        assert all(sum(h['amount'] for h in p.history if h['kind'] == 'Buy-in') == p.buyins * STARTING_CHIPS for p in players)
+        assert all(sum(h['amount'] for h in p.history if h['kind'] == 'Buy-out') == p.buyout for p in players)
         assert sum(p.buyins for p in players) * STARTING_CHIPS == total, 'buy-ins miscounted'
         if not g.result['uncontested']:
             assert len(g.board) == 5
@@ -229,6 +236,30 @@ def check_no_confirm_mucks():
     print('no confirm = muck ok')
 
 
+def check_cash_out():
+    g = Game('TCASH')
+    a, b, c = g.add_player('A'), g.add_player('B'), g.add_player('C')
+    g.cash_out(c)                                # between hands: immediate
+    assert (c.chips, c.buyout, c.cashed_out) == (0, STARTING_CHIPS, True)
+    g.start_hand()
+    assert not c.in_hand                         # not dealt while cashed out
+    g.choose_variant(g.players[g.sb], 'texas')
+    g.cash_out(a)                                # mid-hand: when the hand ends
+    assert a.pending_cashout and a.buyout == 0
+    while g.phase in STREETS:
+        p = g.players[g.to_act]
+        g.act(p, 'check' if g.legal(p)['canCheck'] else 'call')
+    finish_by_declaring(g)
+    assert a.cashed_out and a.chips == 0 and a.buyout > 0
+    assert a.buyout + b.chips == 2 * STARTING_CHIPS
+    g.rebuy(c)                                   # buying back in returns you to the table
+    assert not c.cashed_out and not c.sitting_out and c.chips == STARTING_CHIPS and c.buyins == 2
+    assert [h['kind'] for h in c.history] == ['Buy-in', 'Buy-out', 'Buy-in']
+    v = {x['name']: x for x in g.view(c.id)['seats']}
+    assert v['C']['net'] == 0 and v['C']['buyout'] == STARTING_CHIPS and v['C']['buyinTotal'] == 2 * STARTING_CHIPS
+    print('cash out ok')
+
+
 def check_allin_gets_showdown_pick():
     g = Game('TALL')
     a, b = g.add_player('A'), g.add_player('B')
@@ -249,5 +280,6 @@ if __name__ == '__main__':
     check_buyin_any_time()
     check_players_choose_their_cards()
     check_no_confirm_mucks()
+    check_cash_out()
     for seed in range(1, 6):
         play_random_hands(seed=seed)

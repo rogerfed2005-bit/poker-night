@@ -98,6 +98,9 @@ function render() {
 
   $('rebuyBtn').textContent = my.pendingBuyins ? `Buy in +200 (${my.pendingBuyins} pending)` : 'Buy in +200';
   renderScore(s);
+  $('cashoutBtn').textContent = my.pendingCashout ? 'Cashing out after hand…' : my.cashedOut ? 'Cashed out' : 'Cash out';
+  $('cashoutBtn').disabled = my.cashedOut || my.pendingCashout;
+  if (!$('ledger').classList.contains('hidden')) renderLedger(s);
   $('sitBtn').textContent = my.sittingOut ? "I'm back" : 'Sit out';
   $('chooser').classList.toggle('hidden', !(s.phase === 'choosing' && s.chooser === s.you));
 }
@@ -146,7 +149,7 @@ function renderSeats(s) {
         : `<div class="hand-desc">${esc(h.main)}${h.side ? `<span class="side-d">${esc(s.result.sideName)}: ${esc(h.side)}</span>` : ''}</div>`;
     }
     const picking = s.phase === 'declare' && p.inHand && !p.folded;
-    const status = picking ? (p.declared ? 'Ready ✓' : 'Picking…') : p.allIn ? 'All-in' : (!p.inHand && s.started ? (p.chips === 0 ? 'Out of chips' : p.sittingOut ? 'Sitting out' : 'Next hand') : p.lastAction);
+    const status = picking ? (p.declared ? 'Ready ✓' : 'Picking…') : p.cashedOut ? 'Cashed out' : p.allIn ? 'All-in' : (!p.inHand && s.started ? (p.chips === 0 ? 'Out of chips' : p.sittingOut ? 'Sitting out' : 'Next hand') : p.lastAction);
     html += `<div class="${cls}" style="left:${at.x}%;top:${at.y}%">
       <div class="cards">${cards}</div>
       <div class="plate">
@@ -400,6 +403,61 @@ function renderResult(s) {
   box.innerHTML = html;
 }
 
+// ---------- ledger ----------
+
+let ledgerSort = { key: 'net', dir: -1 };
+const ledgerOpen = new Set();   // player ids whose details are expanded
+
+function ledgerRows(s) {
+  return s.seats.map((p) => ({
+    id: p.id, name: p.name, you: p.id === s.you, history: p.history || [], buyins: p.buyins,
+    buyin: p.buyinTotal, buyout: p.buyout, stack: p.net - p.buyout + p.buyinTotal, net: p.net,
+  }));
+}
+
+function fmtNet(n) { return n > 0 ? `+${n}` : `${n}`; }
+function fmtTime(t) { return new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+
+function renderLedger(s) {
+  const rows = ledgerRows(s).sort((a, b) => ledgerSort.dir * (a[ledgerSort.key] - b[ledgerSort.key]) || a.name.localeCompare(b.name));
+  document.querySelectorAll('.ledger-table th[data-sort]').forEach((th) => {
+    th.classList.toggle('sorted', th.dataset.sort === ledgerSort.key);
+    th.dataset.arrow = th.dataset.sort === ledgerSort.key ? (ledgerSort.dir < 0 ? '↓' : '↑') : '';
+  });
+  $('ledgerBody').innerHTML = rows.map((r) => {
+    const cls = r.net > 0 ? 'up' : r.net < 0 ? 'down' : '';
+    let html = `<tr class="lrow ${r.you ? 'me' : ''}">
+      <td class="l"><span class="lname">${esc(r.name)}</span> <span class="lid">@ ${esc(r.id)}</span></td>
+      <td><button class="btn tiny ghost" data-details="${esc(r.id)}">${ledgerOpen.has(r.id) ? 'Hide' : 'Details'}</button></td>
+      <td>${r.buyin}</td><td>${r.buyout}</td><td>${r.stack}</td><td class="${cls}">${fmtNet(r.net)}</td></tr>`;
+    if (ledgerOpen.has(r.id)) {
+      html += `<tr class="ldetail"><td colspan="6"><div class="ldetail-box">
+        <div class="muted">${r.buyins} buy-in${r.buyins === 1 ? '' : 's'} · ${r.history.filter((h) => h.kind === 'Buy-out').length} cash-out(s)</div>
+        ${r.history.map((h) => `<div class="lev"><span>${fmtTime(h.t)}</span><span class="${h.kind === 'Buy-in' ? 'in' : 'out'}">${h.kind}</span><b>${h.amount}</b></div>`).join('')}
+      </div></td></tr>`;
+    }
+    return html;
+  }).join('');
+  const tot = rows.reduce((a, r) => ({ buyin: a.buyin + r.buyin, buyout: a.buyout + r.buyout, stack: a.stack + r.stack, net: a.net + r.net }),
+    { buyin: 0, buyout: 0, stack: 0, net: 0 });
+  $('ledgerFoot').innerHTML = `<tr><td class="l">Total</td><td></td><td>${tot.buyin}</td><td>${tot.buyout}</td><td>${tot.stack}</td><td>${fmtNet(tot.net)}</td></tr>`;
+}
+
+function downloadLedger() {
+  const rows = ledgerRows(state).sort((a, b) => b.net - a.net);
+  const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = [['Player', 'ID', 'Buy-ins (count)', 'Buy-in', 'Buy-out', 'Stack', 'Net'].map(q).join(',')];
+  rows.forEach((r) => lines.push([r.name, r.id, r.buyins, r.buyin, r.buyout, r.stack, r.net].map(q).join(',')));
+  lines.push('', ['Player', 'Time', 'Event', 'Amount'].map(q).join(','));
+  rows.forEach((r) => r.history.forEach((h) => lines.push([r.name, new Date(h.t * 1000).toLocaleString(), h.kind, h.amount].map(q).join(','))));
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `poker-ledger-${state.code}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 function renderScore(s) {
   const rows = [...s.seats].sort((a, b) => b.net - a.net).map((p) => {
     const net = p.net > 0 ? `+${p.net}` : `${p.net}`;
@@ -481,6 +539,27 @@ $('rebuyBtn').onclick = () => {
 };
 $('sitBtn').onclick = () => send({ type: 'sitout', value: !(me() && me().sittingOut) });
 $('rulesBtn').onclick = () => $('rules').classList.remove('hidden');
+$('ledgerBtn').onclick = () => { $('ledger').classList.remove('hidden'); renderLedger(state); };
+$('ledgerClose').onclick = () => $('ledger').classList.add('hidden');
+$('ledger').onclick = (e) => { if (e.target.id === 'ledger') $('ledger').classList.add('hidden'); };
+$('ledgerDownload').onclick = downloadLedger;
+document.querySelector('.ledger-table thead').onclick = (e) => {
+  const k = e.target.dataset.sort; if (!k) return;
+  ledgerSort = ledgerSort.key === k ? { key: k, dir: -ledgerSort.dir } : { key: k, dir: -1 };
+  renderLedger(state);
+};
+$('ledgerBody').onclick = (e) => {
+  const id = e.target.dataset.details; if (!id) return;
+  ledgerOpen.has(id) ? ledgerOpen.delete(id) : ledgerOpen.add(id);
+  renderLedger(state);
+};
+$('cashoutBtn').onclick = () => {
+  const my = me(); if (!my) return;
+  const inHand = my.inHand && !my.folded && !['lobby', 'handover'].includes(state.phase);
+  const msg = `Cash out ${my.chips} chips and leave the table?` + (inHand ? ' You are in a hand, so it happens when the hand ends.' : '') +
+    ' You can come back later with Buy in.';
+  if (confirm(msg)) send({ type: 'cashout' });
+};
 $('rulesClose').onclick = () => $('rules').classList.add('hidden');
 $('codeBox').onclick = async () => {
   const link = `${location.origin}/?code=${state.code}`;

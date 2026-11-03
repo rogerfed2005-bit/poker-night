@@ -170,6 +170,8 @@ def handle(room, p, t, data):
         g.declare(p, data['use'], data.get('side'))
     elif t == 'rebuy':
         g.rebuy(p)
+    elif t == 'cashout':
+        g.cash_out(p)
     elif t == 'sitout':
         p.sitting_out = bool(data.get('value'))
         g.note(f'{p.name} is {"sitting out" if p.sitting_out else "back"}')

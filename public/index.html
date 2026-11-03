@@ -32,9 +32,11 @@
       </div>
       <div id="handInfo" class="hand-info"></div>
       <div class="top-actions">
+        <button id="ledgerBtn" class="btn small ghost">Ledger</button>
         <button id="rulesBtn" class="btn small ghost">Rules</button>
         <button id="sitBtn" class="btn small ghost">Sit out</button>
         <button id="rebuyBtn" class="btn small">Buy in +200</button>
+        <button id="cashoutBtn" class="btn small ghost">Cash out</button>
       </div>
     </header>
 
@@ -105,6 +107,31 @@
     <div class="modal-card">
       <h2>You're the small blind — pick the game</h2>
       <div id="variantList" class="variant-list"></div>
+    </div>
+  </div>
+
+  <!-- Ledger -->
+  <div id="ledger" class="modal hidden">
+    <div class="modal-card ledger-card">
+      <div class="ledger-head">
+        <h2>Session Ledger</h2>
+        <button class="btn small ghost" id="ledgerClose" aria-label="Close">✕</button>
+      </div>
+      <div class="ledger-scroll">
+        <table class="ledger-table">
+          <thead><tr>
+            <th class="l">Player</th><th></th>
+            <th data-sort="buyin">Buy-in</th><th data-sort="buyout">Buy-out</th>
+            <th data-sort="stack">Stack</th><th data-sort="net">Net</th>
+          </tr></thead>
+          <tbody id="ledgerBody"></tbody>
+          <tfoot id="ledgerFoot"></tfoot>
+        </table>
+      </div>
+      <div class="ledger-actions">
+        <button class="btn primary small" id="ledgerDownload">Download CSV</button>
+        <span class="muted">The ledger lasts while the game is running — download it before everyone leaves.</span>
+      </div>
     </div>
   </div>
 

@@ -45,7 +45,10 @@ the hand, the hand name and what they won.
 No-limit betting, side pots for all-ins, odd chips go to the first winner left of the dealer.
 Heads-up, the dealer posts the small blind. Max 8 players (5-card games need the deck).
 Anyone can buy in for another 200 at any time (during a hand the chips arrive when it ends);
-the scoreboard shows each player's buy-ins, chips and profit/loss. Disconnected players are auto-checked/folded after 20 s
+the scoreboard shows each player's buy-ins, chips and profit/loss. **Cash out** leaves the table with
+your stack (recorded as a buy-out; mid-hand it happens when the hand ends); buy in again to come back.
+The **Ledger** button shows buy-in, buy-out, stack and net per player (sortable, with a timed history
+under Details) and downloads it as a CSV. Disconnected players are auto-checked/folded after 20 s
 and can return by refreshing or rejoining with the same name.
 
 ## Tests

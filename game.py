@@ -37,6 +37,10 @@ class Player:
         self.chips = STARTING_CHIPS
         self.buyins = 1
         self.pending_buyins = 0  # bought during a hand: chips arrive when the hand ends
+        self.buyout = 0          # chips taken off the table by cashing out
+        self.pending_cashout = False
+        self.cashed_out = False
+        self.history = [{'t': time.time(), 'kind': 'Buy-in', 'amount': STARTING_CHIPS}]
         self.connected = True
         self.sitting_out = False
         self.reset_hand()
@@ -116,6 +120,28 @@ class Game:
     def _add_buyin(self, p):
         p.chips += STARTING_CHIPS
         p.buyins += 1
+        p.history.append({'t': time.time(), 'kind': 'Buy-in', 'amount': STARTING_CHIPS})
+        if p.cashed_out:  # buying back in brings a cashed-out player back to the table
+            p.cashed_out = p.sitting_out = False
+
+    def cash_out(self, p):
+        """Leave with your stack (recorded as a buy-out); mid-hand it happens when the hand ends."""
+        if p.cashed_out or p.pending_cashout:
+            raise ValueError('You have already cashed out')
+        if p.in_hand and not p.folded and self.phase in STREETS + ['choosing', 'declare']:
+            p.pending_cashout = True
+            self.note(f'{p.name} will cash out after this hand')
+        else:
+            self._do_cashout(p)
+
+    def _do_cashout(self, p):
+        amount = p.chips
+        p.buyout += amount
+        p.chips = 0
+        p.cashed_out = p.sitting_out = True
+        p.pending_cashout = False
+        p.history.append({'t': time.time(), 'kind': 'Buy-out', 'amount': amount})
+        self.note(f'{p.name} cashed out {amount}')
 
     def _apply_pending_buyins(self):
         for p in self.players:
@@ -297,6 +323,9 @@ class Game:
     def _finish(self, result):
         self.result = result
         self._apply_pending_buyins()
+        for q in self.players:
+            if q.pending_cashout:
+                self._do_cashout(q)
         self.phase = 'handover'
         self.to_act = -1
         for q in self.players:
@@ -528,7 +557,9 @@ class Game:
                 'sittingOut': p.sitting_out, 'declared': p.declared,
                 'inHand': p.in_hand, 'folded': p.folded, 'allIn': p.all_in, 'lastAction': p.last_action,
                 'cards': p.hole if reveal else (['??'] * len(p.hole) if p.in_hand and not p.folded else []),
-                'net': p.chips - p.buyins * STARTING_CHIPS + (p.total_bet if self.phase in STREETS + ['declare'] else 0),
+                'net': p.chips + p.buyout - p.buyins * STARTING_CHIPS + (p.total_bet if self.phase in STREETS + ['declare'] else 0),
+                'buyinTotal': p.buyins * STARTING_CHIPS, 'buyout': p.buyout, 'cashedOut': p.cashed_out,
+                'pendingCashout': p.pending_cashout, 'history': p.history,
                 'buyins': p.buyins, 'pendingBuyins': p.pending_buyins, 'dealer': i == self.dealer, 'sb': i == self.sb and self.started,
                 'bb': i == self.bb and self.started, 'turn': i == self.to_act and self.phase in STREETS + ['choosing'],
                 'sideIdx': p.side_idx if p.id == viewer_id else None,
