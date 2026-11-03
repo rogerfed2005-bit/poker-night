@@ -95,7 +95,8 @@ function render() {
   renderResult(s);
   renderLog(s);
 
-  $('rebuyBtn').classList.toggle('hidden', !(my.chips === 0 && (!my.inHand || my.folded || s.phase === 'handover' || s.phase === 'lobby')));
+  $('rebuyBtn').textContent = my.pendingBuyins ? `Buy in +200 (${my.pendingBuyins} pending)` : 'Buy in +200';
+  renderScore(s);
   $('sitBtn').textContent = my.sittingOut ? "I'm back" : 'Sit out';
   $('chooser').classList.toggle('hidden', !(s.phase === 'choosing' && s.chooser === s.you));
 }
@@ -201,7 +202,7 @@ function renderMine(s, my) {
     if (b) b.onclick = () => send({ type: 'declare', idx: side });
     tickDeclare();
   } else if (!my.inHand && s.started && s.phase !== 'handover') {
-    info.textContent = my.chips === 0 ? 'You are out of chips — rebuy to keep playing.' : 'You will be dealt in next hand.';
+    info.textContent = my.chips === 0 ? 'You are out of chips — press Buy in to keep playing.' : 'You will be dealt in next hand.';
   } else info.textContent = '';
 }
 
@@ -272,6 +273,16 @@ function renderResult(s) {
   }).join('');
 }
 
+function renderScore(s) {
+  const rows = [...s.seats].sort((a, b) => b.net - a.net).map((p) => {
+    const net = p.net > 0 ? `+${p.net}` : `${p.net}`;
+    const pend = p.pendingBuyins ? ` <span class="pend">+${p.pendingBuyins}</span>` : '';
+    return `<tr class="${p.id === s.you ? 'me' : ''}"><td>${esc(p.name)}</td><td>${p.buyins}${pend}</td>` +
+      `<td>${p.chips}</td><td class="${p.net > 0 ? 'up' : p.net < 0 ? 'down' : ''}">${net}</td></tr>`;
+  }).join('');
+  $('score').innerHTML = `<tr><th>Player</th><th>Buy-ins</th><th>Chips</th><th>+/−</th></tr>${rows}`;
+}
+
 function renderLog(s) {
   const log = $('log');
   const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
@@ -329,7 +340,11 @@ document.querySelector('.presets').onclick = (e) => {
   const v = { min: lg.minTo, all: lg.maxTo, half: lg.currentBet + Math.floor(potAfterCall / 2), pot: lg.currentBet + potAfterCall }[p];
   setRaise(v);
 };
-$('rebuyBtn').onclick = () => send({ type: 'rebuy' });
+$('rebuyBtn').onclick = () => {
+  const my = me(), inHand = my && my.inHand && !my.folded && !['lobby', 'handover'].includes(state.phase);
+  const msg = `Buy in for another ${state.startingChips} chips?` + (inHand ? ' You are in a hand, so they will be added when it ends.' : '');
+  if (confirm(msg)) send({ type: 'rebuy' });
+};
 $('sitBtn').onclick = () => send({ type: 'sitout', value: !(me() && me().sittingOut) });
 $('rulesBtn').onclick = () => $('rules').classList.remove('hidden');
 $('rulesClose').onclick = () => $('rules').classList.add('hidden');

@@ -76,6 +76,13 @@ input:focus { border-color: var(--accent); }
 .side { border-left: 1px solid var(--line); background: var(--panel); padding: 12px;
   display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 60px); }
 .side h3 { margin: 4px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.score { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--bg); border-radius: 8px; }
+.score th, .score td { padding: 4px 8px; text-align: right; }
+.score th:first-child, .score td:first-child { text-align: left; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score th { color: var(--muted); font-weight: 600; font-size: 11px; border-bottom: 1px solid var(--line); }
+.score tr.me td:first-child { color: var(--accent); font-weight: 700; }
+.score .up { color: var(--accent); } .score .down { color: #ff8a8a; }
+.score .pend { color: var(--gold); font-size: 11px; }
 .log, .chat { overflow-y: auto; font-size: 13px; background: var(--bg); border-radius: 8px; padding: 8px; }
 .log { flex: 3; min-height: 120px; color: #c7d3cb; }
 .log div { padding: 1px 0; }

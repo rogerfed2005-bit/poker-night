@@ -34,6 +34,7 @@ class Player:
         self.name = name
         self.chips = STARTING_CHIPS
         self.buyins = 1
+        self.pending_buyins = 0  # bought during a hand: chips arrive when the hand ends
         self.connected = True
         self.sitting_out = False
         self.reset_hand()
@@ -101,13 +102,24 @@ class Game:
         self.log = self.log[-60:]
 
     def rebuy(self, p):
+        """Buy in for another stack at any time; mid-hand it is added once the hand ends."""
         if p.in_hand and not p.folded and self.phase in STREETS + ['choosing', 'declare']:
-            raise ValueError('You can only rebuy when you are not in a hand')
-        if p.chips > 0:
-            raise ValueError('You can only rebuy when you are out of chips')
+            p.pending_buyins += 1
+            self.note(f'{p.name} bought in for {STARTING_CHIPS} (added after this hand)')
+        else:
+            self._add_buyin(p)
+            self.note(f'{p.name} bought in for {STARTING_CHIPS} (buy-in #{p.buyins})')
+
+    def _add_buyin(self, p):
         p.chips += STARTING_CHIPS
         p.buyins += 1
-        self.note(f'{p.name} rebought for {STARTING_CHIPS}')
+
+    def _apply_pending_buyins(self):
+        for p in self.players:
+            while p.pending_buyins:
+                p.pending_buyins -= 1
+                self._add_buyin(p)
+                self.note(f'{p.name}: buy-in #{p.buyins} added')
 
     # ----- seat helpers -----
 
@@ -281,6 +293,7 @@ class Game:
 
     def _finish(self, result):
         self.result = result
+        self._apply_pending_buyins()
         self.phase = 'handover'
         self.to_act = -1
         for q in self.players:
@@ -436,7 +449,7 @@ class Game:
                 'inHand': p.in_hand, 'folded': p.folded, 'allIn': p.all_in, 'lastAction': p.last_action,
                 'cards': p.hole if reveal else (['??'] * len(p.hole) if p.in_hand and not p.folded else []),
                 'net': p.chips - p.buyins * STARTING_CHIPS + (p.total_bet if self.phase in STREETS + ['declare'] else 0),
-                'buyins': p.buyins, 'dealer': i == self.dealer, 'sb': i == self.sb and self.started,
+                'buyins': p.buyins, 'pendingBuyins': p.pending_buyins, 'dealer': i == self.dealer, 'sb': i == self.sb and self.started,
                 'bb': i == self.bb and self.started, 'turn': i == self.to_act and self.phase in STREETS + ['choosing'],
                 'sideIdx': p.side_idx if reveal else None,
             })

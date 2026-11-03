@@ -51,6 +51,9 @@ def play_random_hands(n_hands=3000, seed=1):
         while g.phase in STREETS:
             p = g.players[g.to_act]
             lg = g.legal(p)
+            if random.random() < 0.01:          # buy-ins at random moments, mid-hand too
+                g.rebuy(random.choice(players))
+                total += STARTING_CHIPS
             r = random.random()
             if r < 0.15 and not lg['canCheck']:
                 g.act(p, 'fold')
@@ -70,7 +73,9 @@ def play_random_hands(n_hands=3000, seed=1):
             else:
                 g.finish_declare()  # timer ran out for the last player
         assert g.phase == 'handover'
+        assert all(p.pending_buyins == 0 for p in players)
         assert sum(p.chips for p in players) == total, 'chips not conserved'
+        assert sum(p.buyins for p in players) * STARTING_CHIPS == total, 'buy-ins miscounted'
         if not g.result['uncontested']:
             assert len(g.board) == 5
     print(f'{n_hands} random hands ok ({len(players)} players)')
@@ -108,6 +113,24 @@ def check_999_split():
     print('999 split + showdown pick ok')
 
 
+def check_buyin_any_time():
+    g = Game('TBUY')
+    a, b = g.add_player('A'), g.add_player('B')
+    g.rebuy(a)                                   # in the lobby: added now
+    assert (a.chips, a.buyins) == (2 * STARTING_CHIPS, 2)
+    g.start_hand()
+    g.choose_variant(g.players[g.sb], 'texas')
+    before = b.chips
+    g.rebuy(b)                                   # mid-hand: queued
+    assert (b.chips, b.buyins, b.pending_buyins) == (before, 1, 1)
+    while g.phase in STREETS:
+        p = g.players[g.to_act]
+        g.act(p, 'check' if g.legal(p)['canCheck'] else 'call')
+    assert (b.buyins, b.pending_buyins) == (2, 0)
+    assert a.chips + b.chips == 4 * STARTING_CHIPS
+    print('buy-in any time ok')
+
+
 def check_allin_gets_showdown_pick():
     g = Game('TALL')
     a, b = g.add_player('A'), g.add_player('B')
@@ -125,5 +148,6 @@ if __name__ == '__main__':
     check_evaluators()
     check_999_split()
     check_allin_gets_showdown_pick()
+    check_buyin_any_time()
     for seed in range(1, 6):
         play_random_hands(seed=seed)
