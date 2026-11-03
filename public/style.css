@@ -157,6 +157,8 @@ input:focus { border-color: var(--accent); }
 .split-info { font-size: 13px; color: var(--muted); max-width: 380px; }
 .split-info b { color: #6fa8dc; }
 .split-info .t { color: var(--text); }
+.declare-row { margin-top: 8px; display: flex; align-items: center; gap: 8px; color: var(--text); }
+.declare-count { color: var(--gold); font-weight: 700; }
 .actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
 .action-btns { display: flex; gap: 8px; }
 .action-btns .btn { min-width: 100px; }

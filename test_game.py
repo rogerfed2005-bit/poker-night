@@ -60,6 +60,15 @@ def play_random_hands(n_hands=3000, seed=1):
                 g.act(p, 'check' if lg['canCheck'] else 'call')
             steps += 1
             assert steps < 500, 'hand never ended'
+        if g.phase == 'declare':
+            assert len(g.board) == 5
+            live = g.contenders()
+            for p in live[:-1]:
+                g.declare(p, random.sample(range(5), 3))
+            if random.random() < 0.5:
+                g.declare(live[-1], random.sample(range(5), 3))
+            else:
+                g.finish_declare()  # timer ran out for the last player
         assert g.phase == 'handover'
         assert sum(p.chips for p in players) == total, 'chips not conserved'
         if not g.result['uncontested']:
@@ -79,17 +88,42 @@ def check_999_split():
     while g.phase in STREETS:
         p = g.players[g.to_act]
         g.act(p, 'check' if g.legal(p)['canCheck'] else 'call')
+    assert g.phase == 'declare'
+    g.set_split(a, [0, 1, 2])          # change of mind at showdown...
+    g.declare(a, [2, 3, 4])            # ...final pick is what counts
+    try:
+        g.set_split(a, [0, 1, 2])
+        raise AssertionError('pick changed after confirming')
+    except ValueError:
+        pass
+    g.declare(b, [0, 1, 2]); g.declare(c, [0, 1, 2])
+    assert g.phase == 'declare'        # still waiting for D
+    g.declare(d, [2, 3, 4])
     won = {}
     for pot in g.result['pots']:
         for aw in pot['awards']:
             won[aw['name']] = won.get(aw['name'], 0) + aw['amount']
     # pot 8: A takes the Texas half (4), B and C tie 998 and get a quarter each (2)
     assert won == {'A': 4, 'B': 2, 'C': 2}, won
-    print('999 split ok')
+    print('999 split + showdown pick ok')
+
+
+def check_allin_gets_showdown_pick():
+    g = Game('TALL')
+    a, b = g.add_player('A'), g.add_player('B')
+    g.start_hand()
+    g.choose_variant(g.players[g.sb], 'theenpathi')
+    p = g.players[g.to_act]
+    g.act(p, 'raise', 10_000)          # all-in pre-flop
+    q = g.players[g.to_act]
+    g.act(q, 'call')
+    assert g.phase == 'declare' and len(g.board) == 5, g.phase
+    print('all-in still gets showdown pick ok')
 
 
 if __name__ == '__main__':
     check_evaluators()
     check_999_split()
+    check_allin_gets_showdown_pick()
     for seed in range(1, 6):
         play_random_hands(seed=seed)

@@ -1,12 +1,14 @@
 """Table state and rules: blinds, betting rounds, side pots and split-pot showdowns."""
 import random
 import secrets
+import time
 
 import evaluator as ev
 
 STARTING_CHIPS = 200
 SMALL_BLIND = 1
 BIG_BLIND = 2
+DECLARE_SECONDS = 30   # time to make the final 999 / Theenpathi pick at showdown
 
 VARIANTS = {
     'texas': {'name': "Texas Hold'em", 'hole': 2, 'split': False},
@@ -45,6 +47,7 @@ class Player:
         self.total_bet = 0    # chips put in this hand
         self.acted = False
         self.side_idx = None  # indices of the 3 hole cards used for 999 / Theenpathi
+        self.declared = False # confirmed their final pick at showdown
         self.last_action = ''
 
     @property
@@ -59,7 +62,7 @@ class Game:
         self.players = []        # seat order
         self.host_id = None
         self.started = False
-        self.phase = 'lobby'     # lobby | choosing | preflop | flop | turn | river | handover
+        self.phase = 'lobby'     # lobby | choosing | preflop | flop | turn | river | declare | handover
         self.dealer = -1
         self.sb = self.bb = -1
         self.to_act = -1
@@ -70,6 +73,7 @@ class Game:
         self.min_raise = BIG_BLIND
         self.hand_no = 0
         self.result = None       # summary of the last finished hand
+        self.declare_deadline = 0
         self.log = []
 
     # ----- seating -----
@@ -97,7 +101,7 @@ class Game:
         self.log = self.log[-60:]
 
     def rebuy(self, p):
-        if p.in_hand and not p.folded and self.phase in STREETS + ['choosing']:
+        if p.in_hand and not p.folded and self.phase in STREETS + ['choosing', 'declare']:
             raise ValueError('You can only rebuy when you are not in a hand')
         if p.chips > 0:
             raise ValueError('You can only rebuy when you are out of chips')
@@ -250,10 +254,10 @@ class Game:
         if sum(1 for q in live if not q.all_in) <= 1:
             while len(self.board) < 5:
                 self._deal_street()
-            self._showdown()
+            self._reach_showdown()
             return
         if self.phase == 'river':
-            self._showdown()
+            self._reach_showdown()
             return
         self._deal_street()
         self.to_act = self.dealer  # action starts left of the dealer
@@ -290,13 +294,41 @@ class Game:
             {'id': w.id, 'name': w.name, 'amount': pot, 'why': 'Everyone else folded'}]}],
             'hands': {}})
 
+    def _reach_showdown(self):
+        """Split games pause here so everyone makes their final pick with the full board out."""
+        if VARIANTS[self.variant]['split']:
+            self.phase = 'declare'
+            self.to_act = -1
+            self.declare_deadline = time.time() + DECLARE_SECONDS
+            for q in self.players:
+                q.bet = 0
+            self.note(f'Showdown: pick your final {SIDE_GAME_NAME[self.variant]} cards')
+        else:
+            self._showdown()
+
     def set_split(self, p, idx):
-        if not VARIANTS.get(self.variant, {}).get('split') or not p.in_hand:
+        if not VARIANTS.get(self.variant, {}).get('split') or not p.in_hand or p.folded:
             raise ValueError('This game has no card split')
+        if self.phase not in STREETS + ['declare'] or p.declared:
+            raise ValueError('Your pick is final')
         idx = sorted(set(int(i) for i in idx))
         if len(idx) != 3 or any(i < 0 or i >= len(p.hole) for i in idx):
             raise ValueError('Pick exactly 3 cards')
         p.side_idx = idx
+
+    def declare(self, p, idx):
+        if self.phase != 'declare':
+            raise ValueError('You confirm your pick at showdown')
+        self.set_split(p, idx)
+        p.declared = True
+        self.note(f'{p.name} confirmed their {SIDE_GAME_NAME[self.variant]} cards')
+        if all(q.declared for q in self.contenders()):
+            self._showdown()
+
+    def finish_declare(self):
+        """Time's up: anyone who hasn't confirmed keeps their current pick (or the best 3 cards)."""
+        if self.phase == 'declare':
+            self._showdown()
 
     def _evaluate(self, p):
         v = self.variant
@@ -387,6 +419,8 @@ class Game:
         elif self.phase in STREETS and self.to_act >= 0:
             p = self.players[self.to_act]
             self.act(p, 'check' if self.legal(p)['canCheck'] else 'fold')
+        elif self.phase == 'declare':
+            self.finish_declare()
 
     # ----- what each client sees -----
 
@@ -398,10 +432,10 @@ class Game:
             reveal = p.id == viewer_id or (showdown and p.in_hand and not p.folded)
             seats.append({
                 'id': p.id, 'name': p.name, 'chips': p.chips, 'bet': p.bet, 'connected': p.connected,
-                'sittingOut': p.sitting_out,
+                'sittingOut': p.sitting_out, 'declared': p.declared,
                 'inHand': p.in_hand, 'folded': p.folded, 'allIn': p.all_in, 'lastAction': p.last_action,
                 'cards': p.hole if reveal else (['??'] * len(p.hole) if p.in_hand and not p.folded else []),
-                'net': p.chips - p.buyins * STARTING_CHIPS + (p.total_bet if self.phase in STREETS else 0),
+                'net': p.chips - p.buyins * STARTING_CHIPS + (p.total_bet if self.phase in STREETS + ['declare'] else 0),
                 'buyins': p.buyins, 'dealer': i == self.dealer, 'sb': i == self.sb and self.started,
                 'bb': i == self.bb and self.started, 'turn': i == self.to_act and self.phase in STREETS + ['choosing'],
                 'sideIdx': p.side_idx if reveal else None,
@@ -411,9 +445,10 @@ class Game:
             'phase': self.phase, 'variant': self.variant,
             'variantName': VARIANTS[self.variant]['name'] if self.variant else None,
             'split': bool(self.variant and VARIANTS[self.variant]['split']),
-            'board': self.board, 'pot': self.pot_total() if self.phase in STREETS else 0, 'seats': seats,
+            'board': self.board, 'pot': self.pot_total() if self.phase in STREETS + ['declare'] else 0, 'seats': seats,
             'chooser': self.players[self.sb].id if self.phase == 'choosing' else None,
             'legal': self.legal(me) if me else None, 'result': self.result, 'log': self.log[-25:],
             'handNo': self.hand_no, 'canStart': self.can_start_hand(),
+            'declareLeft': max(0, round(self.declare_deadline - time.time())) if self.phase == 'declare' else 0,
             'blinds': [SMALL_BLIND, BIG_BLIND], 'startingChips': STARTING_CHIPS,
         }

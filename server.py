@@ -7,6 +7,7 @@ import json
 import os
 import random
 import string
+import time
 from pathlib import Path
 
 from aiohttp import web, WSMsgType
@@ -62,6 +63,9 @@ def schedule(room):
     g = room.game
     if g.phase == 'handover' and g.can_start_hand():
         room.timer = asyncio.get_running_loop().call_later(NEXT_HAND_DELAY, fire, room, 'next')
+    elif g.phase == 'declare':
+        delay = max(0, g.declare_deadline - time.time())
+        room.timer = asyncio.get_running_loop().call_later(delay, fire, room, 'declare')
     elif g.phase in STREETS + ['choosing'] and g.to_act >= 0 and not g.players[g.to_act].connected:
         room.timer = asyncio.get_running_loop().call_later(DISCONNECT_GRACE, fire, room, 'auto')
 
@@ -73,6 +77,8 @@ def fire(room, kind):
         g.start_hand()
     elif kind == 'auto' and g.to_act >= 0 and not g.players[g.to_act].connected:
         g.auto_act()
+    elif kind == 'declare':
+        g.finish_declare()
     asyncio.ensure_future(broadcast(room))
 
 
@@ -158,6 +164,8 @@ def handle(room, p, t, data):
         g.act(p, data['action'], data.get('amount', 0))
     elif t == 'split':
         g.set_split(p, data['idx'])
+    elif t == 'declare':
+        g.declare(p, data['idx'])
     elif t == 'rebuy':
         g.rebuy(p)
     elif t == 'sitout':
@@ -176,8 +184,15 @@ async def index(request):
     return web.FileResponse(PUBLIC / 'index.html')
 
 
+async def no_stale_files(request, response):
+    # browsers re-check the page and scripts so everyone gets updates right after a deploy
+    if not request.path.startswith('/ws'):
+        response.headers['Cache-Control'] = 'no-cache'
+
+
 def make_app():
     app = web.Application()
+    app.on_response_prepare.append(no_stale_files)
     app.router.add_get('/', index)
     app.router.add_get('/ws', ws_handler)
     app.router.add_static('/static', PUBLIC)
