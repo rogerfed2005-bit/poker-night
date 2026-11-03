@@ -167,6 +167,26 @@ function renderSeats(s) {
   $('seats').innerHTML = html;
 }
 
+// Theenpathi 3-card hand name (same ranking as the server): Trail > Straight Flush > Straight > Flush > Pair > High Card
+const RANK_VAL = { 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, T: 10, J: 11, Q: 12, K: 13, A: 14 };
+const RANK_NAME = { 2: 'Two', 3: 'Three', 4: 'Four', 5: 'Five', 6: 'Six', 7: 'Seven', 8: 'Eight', 9: 'Nine', 10: 'Ten', 11: 'Jack', 12: 'Queen', 13: 'King', 14: 'Ace' };
+const plural = (r) => (r === 6 ? 'Sixes' : RANK_NAME[r] + 's');
+function tpName(cards) {
+  const rs = cards.map((c) => RANK_VAL[c[0]]).sort((a, b) => b - a);
+  const flush = cards.every((c) => c[1] === cards[0][1]);
+  let high = 0;
+  if (new Set(rs).size === 3) {
+    if (rs[0] - rs[2] === 2) high = rs[0];
+    else if (rs[0] === 14 && rs[1] === 3 && rs[2] === 2) high = 3;
+  }
+  if (rs[0] === rs[2]) return `Trail of ${plural(rs[0])}`;
+  if (high && flush) return `Straight Flush, ${RANK_NAME[high]} high`;
+  if (high) return `Straight, ${RANK_NAME[high]} high`;
+  if (flush) return `Flush, ${RANK_NAME[rs[0]]} high`;
+  if (rs[0] === rs[1] || rs[1] === rs[2]) return `Pair of ${plural(rs[1])}`;
+  return `${RANK_NAME[rs[0]]} High`;
+}
+
 function value999(cards) {
   const d = cards.map((c) => ('23456789'.includes(c[0]) ? +c[0] : 0)).sort((a, b) => b - a);
   return String(d[0] * 100 + d[1] * 10 + d[2]).padStart(3, '0');
@@ -210,7 +230,7 @@ function renderMine(s, my) {
   if (s.split) {
     if (side.length === 3) {
       const sc = side.map((i) => cards[i]);
-      html += `<div><b>${sideName}:</b> <span class="t">${sc.map(pretty).join(' ')}${s.variant === '999' ? ` = ${value999(sc)}` : ''}</span></div>`;
+      html += `<div><b>${sideName}:</b> <span class="t">${sc.map(pretty).join(' ')} = ${s.variant === '999' ? value999(sc) : tpName(sc)}</span></div>`;
     } else if (s.phase !== 'handover') {
       html += `<div>Click <b>3 cards</b> for your ${sideName} hand — the other 2 are for Texas. (${3 - side.length} more)</div>`;
     }
@@ -485,7 +505,6 @@ function variantCards(el, clickable) {
   el.innerHTML = VARIANTS.map((v) => `<${clickable ? 'button' : 'div'} class="variant" data-v="${v.key}"><h4>${v.name}</h4><p>${v.desc}</p></${clickable ? 'button' : 'div'}>`).join('');
 }
 variantCards($('variantList'), true);
-variantCards($('rulesList'), false);
 $('variantList').onclick = (e) => {
   const b = e.target.closest('[data-v]'); if (b) send({ type: 'choose', variant: b.dataset.v });
 };
@@ -538,7 +557,16 @@ $('rebuyBtn').onclick = () => {
   if (confirm(msg)) send({ type: 'rebuy' });
 };
 $('sitBtn').onclick = () => send({ type: 'sitout', value: !(me() && me().sittingOut) });
-$('rulesBtn').onclick = () => $('rules').classList.remove('hidden');
+function openRules(tab) {
+  const want = tab || (state && state.variant) || 'general';
+  document.querySelectorAll('.rtab').forEach((b) => b.classList.toggle('active', b.dataset.tab === want));
+  document.querySelectorAll('.rpage').forEach((p) => p.classList.toggle('active', p.dataset.page === want));
+  $('rules').classList.remove('hidden');
+}
+$('rulesBtn').onclick = () => openRules();
+document.querySelectorAll('.rules-link').forEach((l) => (l.onclick = (e) => { e.preventDefault(); openRules('general'); }));
+document.querySelector('.rules-tabs').onclick = (e) => { const t = e.target.dataset.tab; if (t) openRules(t); };
+$('rules').onclick = (e) => { if (e.target.id === 'rules') $('rules').classList.add('hidden'); };
 // phone: the top buttons live in a menu that closes after each choice
 $('menuBtn').onclick = (e) => {
   e.stopPropagation();
