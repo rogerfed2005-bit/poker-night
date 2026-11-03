@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1512">
   <title>Poker Night</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -31,7 +32,8 @@
         <span class="label">Game code</span> <b id="codeText"></b> <span class="copy" id="copyMsg">copy link</span>
       </div>
       <div id="handInfo" class="hand-info"></div>
-      <div class="top-actions">
+      <button id="menuBtn" class="btn small ghost menu-btn" aria-label="Menu" aria-expanded="false">☰ Menu</button>
+      <div class="top-actions" id="topActions">
         <button id="ledgerBtn" class="btn small ghost">Ledger</button>
         <button id="rulesBtn" class="btn small ghost">Rules</button>
         <button id="sitBtn" class="btn small ghost">Sit out</button>
@@ -120,7 +122,7 @@
       <div class="ledger-scroll">
         <table class="ledger-table">
           <thead><tr>
-            <th class="l">Player</th><th></th>
+            <th class="l">Player</th><th class="ldet"></th>
             <th data-sort="buyin">Buy-in</th><th data-sort="buyout">Buy-out</th>
             <th data-sort="stack">Stack</th><th data-sort="net">Net</th>
           </tr></thead>

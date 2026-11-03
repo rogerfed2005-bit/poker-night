@@ -122,7 +122,7 @@ function renderLobby(s, my) {
 function seatPositions(n) {
   // my seat at the bottom, the rest clockwise around the oval
   const narrow = window.innerWidth <= 640;
-  const rx = narrow ? 41 : 45, ry = narrow ? 42 : 43;
+  const rx = narrow ? 38 : 45, ry = narrow ? 42 : 43;
   return Array.from({ length: n }, (_, i) => {
     const a = Math.PI / 2 + (i * 2 * Math.PI) / n;
     return { x: 50 + rx * Math.cos(a), y: 50 + ry * Math.sin(a), bx: 50 + rx * 0.58 * Math.cos(a), by: 50 + ry * 0.55 * Math.sin(a) };
@@ -370,7 +370,7 @@ function renderResult(s) {
   let html = '';
   if (!r.uncontested) {
     html += '<div class="sd-title">Showdown</div><div class="sd-rows">';
-    s.seats.filter((p) => r.hands[p.id]).forEach((p) => {
+    s.seats.filter((p) => r.hands[p.id]).sort((a, b) => (won[b.id] || 0) - (won[a.id] || 0)).forEach((p) => {
       const h = r.hands[p.id];
       const hole = p.cards.map((c, i) => cardHTML(c, 'sm', h.mucked ? 'unused' : cardRole(h, i))).join('');
       let detail;
@@ -427,8 +427,8 @@ function renderLedger(s) {
   $('ledgerBody').innerHTML = rows.map((r) => {
     const cls = r.net > 0 ? 'up' : r.net < 0 ? 'down' : '';
     let html = `<tr class="lrow ${r.you ? 'me' : ''}">
-      <td class="l"><span class="lname">${esc(r.name)}</span> <span class="lid">@ ${esc(r.id)}</span></td>
-      <td><button class="btn tiny ghost" data-details="${esc(r.id)}">${ledgerOpen.has(r.id) ? 'Hide' : 'Details'}</button></td>
+      <td class="l" data-details="${esc(r.id)}"><span class="lname">${esc(r.name)}<span class="caret">${ledgerOpen.has(r.id) ? '▴' : '▾'}</span></span> <span class="lid">@ ${esc(r.id)}</span></td>
+      <td class="ldet"><button class="btn tiny ghost" data-details="${esc(r.id)}">${ledgerOpen.has(r.id) ? 'Hide' : 'Details'}</button></td>
       <td>${r.buyin}</td><td>${r.buyout}</td><td>${r.stack}</td><td class="${cls}">${fmtNet(r.net)}</td></tr>`;
     if (ledgerOpen.has(r.id)) {
       html += `<tr class="ldetail"><td colspan="6"><div class="ldetail-box">
@@ -440,7 +440,7 @@ function renderLedger(s) {
   }).join('');
   const tot = rows.reduce((a, r) => ({ buyin: a.buyin + r.buyin, buyout: a.buyout + r.buyout, stack: a.stack + r.stack, net: a.net + r.net }),
     { buyin: 0, buyout: 0, stack: 0, net: 0 });
-  $('ledgerFoot').innerHTML = `<tr><td class="l">Total</td><td></td><td>${tot.buyin}</td><td>${tot.buyout}</td><td>${tot.stack}</td><td>${fmtNet(tot.net)}</td></tr>`;
+  $('ledgerFoot').innerHTML = `<tr><td class="l">Total</td><td class="ldet"></td><td>${tot.buyin}</td><td>${tot.buyout}</td><td>${tot.stack}</td><td>${fmtNet(tot.net)}</td></tr>`;
 }
 
 function downloadLedger() {
@@ -539,6 +539,14 @@ $('rebuyBtn').onclick = () => {
 };
 $('sitBtn').onclick = () => send({ type: 'sitout', value: !(me() && me().sittingOut) });
 $('rulesBtn').onclick = () => $('rules').classList.remove('hidden');
+// phone: the top buttons live in a menu that closes after each choice
+$('menuBtn').onclick = (e) => {
+  e.stopPropagation();
+  const open = $('topActions').classList.toggle('open');
+  $('menuBtn').setAttribute('aria-expanded', open);
+};
+$('topActions').addEventListener('click', () => $('topActions').classList.remove('open'));
+document.addEventListener('click', (e) => { if (!e.target.closest('#topActions, #menuBtn')) $('topActions').classList.remove('open'); });
 $('ledgerBtn').onclick = () => { $('ledger').classList.remove('hidden'); renderLedger(state); };
 $('ledgerClose').onclick = () => $('ledger').classList.add('hidden');
 $('ledger').onclick = (e) => { if (e.target.id === 'ledger') $('ledger').classList.add('hidden'); };
@@ -549,7 +557,8 @@ document.querySelector('.ledger-table thead').onclick = (e) => {
   renderLedger(state);
 };
 $('ledgerBody').onclick = (e) => {
-  const id = e.target.dataset.details; if (!id) return;
+  const el = e.target.closest('[data-details]'); if (!el) return;
+  const id = el.dataset.details;
   ledgerOpen.has(id) ? ledgerOpen.delete(id) : ledgerOpen.add(id);
   renderLedger(state);
 };
