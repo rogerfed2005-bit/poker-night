@@ -250,15 +250,53 @@ function renderActions(s, my) {
   const slider = $('raiseSlider'), input = $('raiseInput');
   slider.min = input.min = lg.minTo; slider.max = input.max = lg.maxTo; slider.step = 1;
   const key = `${s.handNo}|${s.phase}|${lg.currentBet}`;
-  if (key !== raiseKey) { raiseKey = key; setRaise(lg.minTo); } else setRaise(+input.value);
+  if (key !== raiseKey) { raiseKey = key; setRaise(lg.minTo); }
+  else if (document.activeElement === input) onTyped();  // don't overwrite what's being typed
+  else setRaise(+input.value);
+}
+
+function clampRaise(v) {
+  const lg = state.legal;
+  return Math.max(lg.minTo, Math.min(lg.maxTo, Math.round(v) || lg.minTo));
+}
+
+function raiseLabel(v) {
+  const lg = state.legal;
+  return v === lg.maxTo ? `All-in ${v}` : `${lg.currentBet === 0 ? 'Bet' : 'Raise to'} ${v}`;
 }
 
 function setRaise(v) {
   const lg = state.legal; if (!lg) return;
-  v = Math.max(lg.minTo, Math.min(lg.maxTo, Math.round(v) || lg.minTo));
+  v = clampRaise(v);
   $('raiseSlider').value = v; $('raiseInput').value = v;
-  const word = lg.currentBet === 0 ? 'Bet' : 'Raise to';
-  $('raiseBtn').textContent = v === lg.maxTo ? `All-in ${v}` : `${word} ${v}`;
+  $('raiseBtn').textContent = raiseLabel(v);
+  $('raiseBtn').disabled = false;
+  const hint = $('raiseHint');
+  hint.classList.remove('bad');
+  hint.textContent = `Type any amount from ${lg.minTo} to ${lg.maxTo}`;
+}
+
+// Typing: keep the box exactly as typed, keep the slider and button in step
+function onTyped() {
+  const lg = state.legal; if (!lg) return;
+  const input = $('raiseInput'), hint = $('raiseHint'), btn = $('raiseBtn');
+  const digits = input.value.replace(/\D/g, '');
+  if (digits !== input.value) input.value = digits;
+  const v = parseInt(digits, 10);
+  hint.classList.remove('bad');
+  if (!digits) {
+    btn.disabled = true; btn.textContent = raiseLabel(lg.minTo);
+    hint.textContent = `Type any amount from ${lg.minTo} to ${lg.maxTo}`;
+  } else if (v < lg.minTo) {
+    btn.disabled = true; btn.textContent = raiseLabel(lg.minTo);
+    hint.classList.add('bad'); hint.textContent = `Minimum is ${lg.minTo}`;
+  } else {
+    const amt = Math.min(v, lg.maxTo);
+    $('raiseSlider').value = amt;
+    btn.disabled = false; btn.textContent = raiseLabel(amt);
+    if (v > lg.maxTo) { hint.classList.add('bad'); hint.textContent = `You only have ${lg.maxTo} — that's all-in`; }
+    else hint.textContent = 'Press Enter or the button to bet';
+  }
 }
 
 function renderResult(s) {
@@ -331,9 +369,16 @@ $('foldBtn').onclick = () => {
   send({ type: 'act', action: 'fold' });
 };
 $('checkBtn').onclick = () => send({ type: 'act', action: state.legal.canCheck ? 'check' : 'call' });
-$('raiseBtn').onclick = () => send({ type: 'act', action: 'raise', amount: +$('raiseInput').value });
+$('raiseBtn').onclick = () => {
+  const v = parseInt($('raiseInput').value, 10);
+  if (!state.legal || !(v >= state.legal.minTo)) return;
+  send({ type: 'act', action: 'raise', amount: clampRaise(v) });
+};
 $('raiseSlider').oninput = (e) => setRaise(+e.target.value);
-$('raiseInput').onchange = (e) => setRaise(+e.target.value);
+$('raiseInput').oninput = onTyped;
+$('raiseInput').onfocus = (e) => e.target.select();
+$('raiseInput').onblur = (e) => { if (state.legal && parseInt(e.target.value, 10) >= state.legal.minTo) setRaise(+e.target.value); };
+$('raiseInput').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('raiseBtn').click(); } };
 document.querySelector('.presets').onclick = (e) => {
   const p = e.target.dataset.p, lg = state.legal; if (!p || !lg) return;
   const potAfterCall = state.pot + lg.toCall;

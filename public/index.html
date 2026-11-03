@@ -73,9 +73,12 @@
                 <button data-p="all" class="btn tiny ghost">All-in</button>
               </div>
               <div class="slider-row">
-                <input id="raiseSlider" type="range">
-                <input id="raiseInput" type="number">
+                <input id="raiseSlider" type="range" aria-label="Bet amount slider">
+                <label class="amount">Amount
+                  <input id="raiseInput" type="text" inputmode="numeric" autocomplete="off" aria-label="Type bet amount">
+                </label>
               </div>
+              <div id="raiseHint" class="raise-hint"></div>
             </div>
           </div>
           <div id="waitMsg" class="wait-msg"></div>
