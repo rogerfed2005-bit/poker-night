@@ -164,8 +164,10 @@ def handle(room, p, t, data):
         g.act(p, data['action'], data.get('amount', 0))
     elif t == 'split':
         g.set_split(p, data['idx'])
+    elif t == 'use':
+        g.set_use(p, data['idx'])
     elif t == 'declare':
-        g.declare(p, data['idx'])
+        g.declare(p, data['use'], data.get('side'))
     elif t == 'rebuy':
         g.rebuy(p)
     elif t == 'sitout':

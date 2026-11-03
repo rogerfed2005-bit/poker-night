@@ -26,14 +26,18 @@ Games live in server memory, so restarting the server ends them.
 
 ## Rules as implemented
 
-- **Texas** – 2 hole cards, best 5 of 7.
-- **999** – 5 hole cards. Click 3 for your 999 number (10/J/Q/K/A = 0, digits sorted high to low);
-  the other 2 play Texas with the board (using 2, 1 or 0 of them). Half the pot to the best Texas hand,
-  half to the highest number; ties split their half. Your pick is private and can change freely
-  during the hand. At showdown (all 5 board cards out, even after an early all-in) everyone left
-  gets 30 s to make a final pick and press Confirm; hands are revealed once all have confirmed.
-  If time runs out you keep your current pick, or the 3 cards with the highest number.
-- **1 3 5** – 5 hole cards; the hand must use exactly 1, 3 or 5 of them plus 4, 2 or 0 board cards.
+**Showdown (every variation):** once the board is complete (even after an early all-in) each player
+still in clicks which of their own hole cards they are playing; the game completes the 5-card hand with
+the best board cards and shows a preview. Nobody's cards are chosen for them: you get 60 s to press
+Confirm, and a player who doesn't confirm mucks (if nobody in a pot confirms, best hands are used).
+The showdown panel then shows, for each player, the hole cards used, the board cards that completed
+the hand, the hand name and what they won.
+
+- **Texas** – 2 hole cards; use 0, 1 or 2 of them.
+- **999** – 5 hole cards. Pick 3 for your 999 number (10/J/Q/K/A = 0, digits sorted high to low) —
+  privately, changeable during the hand, final at showdown; then choose which of the other 2 to use
+  for Texas (0, 1 or 2). Half the pot to the best Texas hand, half to the highest number; ties split their half.
+- **1 3 5** – 5 hole cards; use exactly 1, 3 or 5 of them (with 4, 2 or 0 board cards).
 - **Theenpathi** – like 999, but the 3 cards form a 3-card hand:
   Trail > Straight Flush > Straight > Flush > Pair > High Card (A-K-Q top straight, A-2-3 lowest).
 - **Omaha** – 4 hole cards, exactly 2 of them + exactly 3 board cards.

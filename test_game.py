@@ -30,6 +30,26 @@ def check_evaluators():
     print('evaluators ok')
 
 
+def declare_random(g, p):
+    """Confirm a random legal choice of hole cards (and side cards in split games)."""
+    side = random.sample(range(5), 3) if VARIANTS[g.variant]['split'] else None
+    avail = [i for i in range(len(p.hole)) if not side or i not in side]
+    use = random.sample(avail, random.choice(g.allowed_counts()))
+    g.declare(p, use, side)
+
+
+def finish_by_declaring(g, picks=None):
+    """Play out a showdown; picks maps player -> (use, side), everyone else picks randomly."""
+    picks = picks or {}
+    for p in g.contenders():
+        if g.phase != 'declare':
+            break
+        if p in picks:
+            g.declare(p, *picks[p])
+        else:
+            declare_random(g, p)
+
+
 def play_random_hands(n_hands=3000, seed=1):
     random.seed(seed)
     g = Game('TEST')
@@ -66,12 +86,20 @@ def play_random_hands(n_hands=3000, seed=1):
         if g.phase == 'declare':
             assert len(g.board) == 5
             live = g.contenders()
-            for p in live[:-1]:
-                g.declare(p, random.sample(range(5), 3))
-            if random.random() < 0.5:
-                g.declare(live[-1], random.sample(range(5), 3))
-            else:
-                g.finish_declare()  # timer ran out for the last player
+            for p in live:
+                r = random.random()
+                if r < 0.15:
+                    continue                    # never confirms: mucks when the timer runs out
+                if r < 0.25:                    # an illegal pick is refused
+                    try:
+                        g.declare(p, list(range(len(p.hole))), [0, 1, 2] if VARIANTS[g.variant]['split'] else None)
+                        if g.variant not in ('135', 'texas'):
+                            raise AssertionError('illegal pick accepted')
+                    except ValueError:
+                        pass
+                if not p.declared and g.phase == 'declare':
+                    declare_random(g, p)
+            g.finish_declare()
         assert g.phase == 'handover'
         assert all(p.pending_buyins == 0 for p in players)
         assert sum(p.chips for p in players) == total, 'chips not conserved'
@@ -95,15 +123,17 @@ def check_999_split():
         g.act(p, 'check' if g.legal(p)['canCheck'] else 'call')
     assert g.phase == 'declare'
     g.set_split(a, [0, 1, 2])          # change of mind at showdown...
-    g.declare(a, [2, 3, 4])            # ...final pick is what counts
+    g.declare(a, [0, 1], [2, 3, 4])    # ...final pick is what counts: AA for Texas
     try:
         g.set_split(a, [0, 1, 2])
         raise AssertionError('pick changed after confirming')
     except ValueError:
         pass
-    g.declare(b, [0, 1, 2]); g.declare(c, [0, 1, 2])
+    g.declare(b, [3, 4], [0, 1, 2]); g.declare(c, [3, 4], [0, 1, 2])
     assert g.phase == 'declare'        # still waiting for D
-    g.declare(d, [2, 3, 4])
+    g.declare(d, [0, 1], [2, 3, 4])
+    assert g.result['hands'][a.id]['main'] == 'Pair of Aces'
+    assert g.result['hands'][a.id]['use'] == [0, 1]
     won = {}
     for pot in g.result['pots']:
         for aw in pot['awards']:
@@ -126,9 +156,77 @@ def check_buyin_any_time():
     while g.phase in STREETS:
         p = g.players[g.to_act]
         g.act(p, 'check' if g.legal(p)['canCheck'] else 'call')
+    finish_by_declaring(g)
     assert (b.buyins, b.pending_buyins) == (2, 0)
     assert a.chips + b.chips == 4 * STARTING_CHIPS
     print('buy-in any time ok')
+
+
+def heads_up(variant, hole_a, hole_b, board):
+    g = Game('T')
+    a, b = g.add_player('A'), g.add_player('B')
+    g.start_hand()
+    g.choose_variant(g.players[g.sb], variant)
+    a.hole, b.hole = hole_a.split(), hole_b.split()
+    burns = ['2c', '2d', '2h']
+    bd = board.split()
+    g.deck = [bd[4], burns[0], bd[3], burns[1], bd[2], bd[1], bd[0], burns[2]]
+    while g.phase in STREETS:
+        p = g.players[g.to_act]
+        g.act(p, 'check' if g.legal(p)['canCheck'] else 'call')
+    assert g.phase == 'declare'
+    return g, a, b
+
+
+def check_players_choose_their_cards():
+    # Texas: A holds a flush draw that got there; B has top pair
+    g, a, b = heads_up('texas', 'Ah 9h', 'Ks Qd', 'Kh 7h 3h 8c 4s')
+    g.set_use(a, [0, 1])
+    assert g.preview(a)['desc'] == 'Flush, Ace high'
+    g.set_use(a, [])                   # playing the board is allowed in Texas
+    assert g.preview(a)['desc'] == 'King High'
+    g.declare(a, [1])                  # A misplays: only the 9h -> no flush, and the pick counts
+    g.declare(b, [0, 1])
+    assert g.result['hands'][a.id]['main'] == 'King High'
+    won = {aw['name']: aw['amount'] for pot in g.result['pots'] for aw in pot['awards']}
+    assert won == {'B': 4}, won
+    assert sorted(g.result['hands'][b.id]['board']) == sorted(['Kh', '8c', '7h']), g.result['hands'][b.id]
+    # Omaha: exactly 2 hole cards
+    g, a, b = heads_up('omaha', 'Ah Kh Qh Jh', '2s 5d 9c 9d', 'Th 3h 6h 8c 9s')
+    for wrong in ([0], [0, 1, 2]):
+        try:
+            g.declare(a, wrong)
+            raise AssertionError('omaha accepted %r' % wrong)
+        except ValueError:
+            pass
+    g.declare(a, [0, 1])
+    g.declare(b, [2, 3])
+    assert g.result['hands'][a.id]['main'] == 'Flush, Ace high'
+    # 1 3 5: 2 cards not allowed
+    g, a, b = heads_up('135', 'Qh Qd 2c 3c 4d', '5s 6s 7d 8d 9h', 'Qs 9c 9d 7h 8s')
+    try:
+        g.declare(a, [0, 1])
+        raise AssertionError('135 accepted 2 cards')
+    except ValueError:
+        pass
+    g.declare(a, [0])
+    g.declare(b, [0, 1, 2])
+    print('players choose their own cards ok')
+
+
+def check_no_confirm_mucks():
+    g, a, b = heads_up('texas', 'As Ad', '7c 2d', 'Kh 9h 3s 8c 4d')
+    g.declare(b, [0, 1])               # B confirms 7-high; A (pair of aces) never confirms
+    g.finish_declare()
+    won = {aw['name']: aw['amount'] for pot in g.result['pots'] for aw in pot['awards']}
+    assert won == {'B': 4}, won
+    assert g.result['hands'][a.id]['mucked']
+    # nobody confirms: best hands are used
+    g, a, b = heads_up('texas', 'As Ad', '7c 2d', 'Kh 9h 3s 8c 4d')
+    g.finish_declare()
+    won = {aw['name']: aw['amount'] for pot in g.result['pots'] for aw in pot['awards']}
+    assert won == {'A': 4}, won
+    print('no confirm = muck ok')
 
 
 def check_allin_gets_showdown_pick():
@@ -149,5 +247,7 @@ if __name__ == '__main__':
     check_999_split()
     check_allin_gets_showdown_pick()
     check_buyin_any_time()
+    check_players_choose_their_cards()
+    check_no_confirm_mucks()
     for seed in range(1, 6):
         play_random_hands(seed=seed)

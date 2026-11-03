@@ -17,6 +17,7 @@ let chat = [];
 let session = loadSession();
 let pendingSide = [];   // cards picked for 999/Theenpathi before 3 are chosen
 let pendingHand = 0;
+let pendingUse = null;   // hole cards chosen at showdown (null until the showdown starts)
 let raiseKey = '';      // keeps the raise amount while it is still the same decision
 
 function loadSession() {
@@ -79,7 +80,7 @@ function me() { return state && state.seats.find((s) => s.id === state.you); }
 function render() {
   const s = state, my = me();
   if (!s || !my) return;
-  if (s.handNo !== pendingHand) { pendingHand = s.handNo; pendingSide = []; }
+  if (s.handNo !== pendingHand) { pendingHand = s.handNo; pendingSide = []; pendingUse = null; }
   $('codeText').textContent = s.code;
   const phaseName = { lobby: 'Waiting to start', choosing: 'Choosing game', preflop: 'Pre-flop', flop: 'Flop', turn: 'Turn', river: 'River', declare: 'Showdown pick', handover: 'Hand over' }[s.phase];
   declareEnd = s.phase === 'declare' ? Date.now() + s.declareLeft * 1000 : 0;
@@ -138,10 +139,11 @@ function renderSeats(s) {
     const cls = ['seat', p.turn && 'turn', p.id === s.you && 'me', p.folded && 'folded', !p.connected && 'offline'].filter(Boolean).join(' ');
     const showCards = p.id !== s.you || s.phase === 'handover';
     const h = hands[p.id];
-    const cards = showCards ? p.cards.map((c, ci) => cardHTML(c, 'sm', h && p.sideIdx && p.sideIdx.includes(ci) ? 'side-card' : '')).join('') : '';
+    const cards = showCards ? p.cards.map((c, ci) => cardHTML(c, 'sm', h && !h.mucked ? cardRole(h, ci) : '')).join('') : '';
     let desc = '';
     if (h && s.phase === 'handover') {
-      desc = `<div class="hand-desc">${esc(h.main)}${h.side ? `<span class="side-d">${esc(s.result.sideName)}: ${esc(h.side)}</span>` : ''}</div>`;
+      desc = h.mucked ? '<div class="hand-desc">Mucked</div>'
+        : `<div class="hand-desc">${esc(h.main)}${h.side ? `<span class="side-d">${esc(s.result.sideName)}: ${esc(h.side)}</span>` : ''}</div>`;
     }
     const picking = s.phase === 'declare' && p.inHand && !p.folded;
     const status = picking ? (p.declared ? 'Ready ✓' : 'Picking…') : p.allIn ? 'All-in' : (!p.inHand && s.started ? (p.chips === 0 ? 'Out of chips' : p.sittingOut ? 'Sitting out' : 'Next hand') : p.lastAction);
@@ -167,43 +169,91 @@ function value999(cards) {
   return String(d[0] * 100 + d[1] * 10 + d[2]).padStart(3, '0');
 }
 
+const USE_RULE = {
+  texas: 'Use 0, 1 or 2 of your cards (0 = play the board)',
+  omaha: 'Use exactly 2 of your 4 cards',
+  '135': 'Use exactly 1, 3 or 5 of your cards',
+  '999': 'From your other 2 cards, use 0, 1 or 2 for Texas',
+  theenpathi: 'From your other 2 cards, use 0, 1 or 2 for Texas',
+};
+
 function renderMine(s, my) {
   const box = $('myCards'), info = $('splitInfo');
   const cards = my.cards || [];
-  const live = my.inHand && !my.folded && cards.length === 5;
+  const live = my.inHand && !my.folded && cards.length > 0;
   const declaring = s.phase === 'declare' && live;
-  const canPick = s.split && live && s.phase !== 'handover' && !my.declared;
   const side = my.sideIdx || pendingSide;
-  box.innerHTML = cards.map((c, i) => cardHTML(c, 'lg', `${canPick ? 'pick' : ''} ${side.includes(i) ? 'side-card' : ''} ${my.folded ? 'dim' : ''}`)).join('');
-  if (canPick) {
-    [...box.children].forEach((el, i) => el.onclick = () => toggleSide(i));
+  const use = declaring ? (pendingUse || my.useIdx || []) : [];
+  const sideName = s.variant === '999' ? '999' : 'Theenpathi';
+  if (declaring && pendingUse === null && !my.declared) {   // start the preview with nothing selected
+    pendingUse = my.useIdx || [];
+    send({ type: 'use', idx: pendingUse });
   }
-  if (s.split && cards.length === 5 && my.inHand) {
-    const name = s.variant === '999' ? '999' : 'Theenpathi';
-    let html;
+  // which click does what: split games pick 3 side cards on the big row; the Texas pick has its own row
+  const sidePick = s.split && live && !my.declared && s.phase !== 'handover';
+  const usePick = declaring && !my.declared && !s.split;
+  box.innerHTML = cards.map((c, i) => cardHTML(c, 'lg', [
+    (sidePick || usePick) && 'pick', s.split && side.includes(i) && 'side-card',
+    use.includes(i) && 'use-card', my.folded && 'dim'].filter(Boolean).join(' '))).join('');
+  if (sidePick) [...box.children].forEach((el, i) => (el.onclick = () => toggleSide(i)));
+  if (usePick) [...box.children].forEach((el, i) => (el.onclick = () => toggleUse(i)));
+
+  if (!live) {
+    info.textContent = !my.inHand && s.started && s.phase !== 'handover'
+      ? (my.chips === 0 ? 'You are out of chips — press Buy in to keep playing.' : 'You will be dealt in next hand.') : '';
+    return;
+  }
+  let html = '';
+  if (s.split) {
     if (side.length === 3) {
-      const sideCards = side.map((i) => cards[i]);
-      const texas = cards.filter((_, i) => !side.includes(i));
-      html = `<b>${name}:</b> <span class="t">${sideCards.map(pretty).join(' ')}${s.variant === '999' ? ` = ${value999(sideCards)}` : ''}</span> · ` +
-        `<b style="color:var(--text)">Texas:</b> <span class="t">${texas.map(pretty).join(' ')}</span>`;
-    } else {
-      html = `Click <b>3 cards</b> for your ${name} hand — the other 2 play Texas. (${3 - side.length} more)`;
+      const sc = side.map((i) => cards[i]);
+      html += `<div><b>${sideName}:</b> <span class="t">${sc.map(pretty).join(' ')}${s.variant === '999' ? ` = ${value999(sc)}` : ''}</span></div>`;
+    } else if (s.phase !== 'handover') {
+      html += `<div>Click <b>3 cards</b> for your ${sideName} hand — the other 2 are for Texas. (${3 - side.length} more)</div>`;
     }
-    if (declaring && my.declared) {
-      html += '<div class="declare-row">✓ Confirmed — waiting for the others… <span class="declare-count"></span></div>';
-    } else if (declaring) {
-      html += `<div class="declare-row"><button id="declareBtn" class="btn primary small" ${side.length === 3 ? '' : 'disabled'}>Confirm my ${name} cards</button>` +
-        ` <span class="declare-count"></span></div>`;
-    } else if (canPick) {
-      html += ' <span>Change it any time — you make your final pick at showdown.</span>';
+    if (!declaring && s.phase !== 'handover') html += '<div>Change it any time — you make your final pick at showdown.</div>';
+  }
+  if (declaring && !my.declared) {
+    const sideDone = !s.split || side.length === 3;
+    if (s.split) html = `<div class="step">Step 1 — your ${sideName} cards:</div>` + html;
+    if (sideDone) {
+      html += `<div class="step">${s.split ? 'Step 2 — ' : 'Showdown: '}${USE_RULE[s.variant]}.</div>`;
+      if (s.split) {
+        const rest = cards.map((c, i) => i).filter((i) => !side.includes(i));
+        html += `<div class="use-row">${rest.map((i) => cardHTML(cards[i], '', `pick ${use.includes(i) ? 'use-card' : ''}" data-i="${i}`)).join('')}</div>`;
+      }
+      html += previewHTML(s, cards, use);
     }
-    info.innerHTML = html;
-    const b = $('declareBtn');
-    if (b) b.onclick = () => send({ type: 'declare', idx: side });
-    tickDeclare();
-  } else if (!my.inHand && s.started && s.phase !== 'handover') {
-    info.textContent = my.chips === 0 ? 'You are out of chips — press Buy in to keep playing.' : 'You will be dealt in next hand.';
-  } else info.textContent = '';
+    const ok = s.preview && s.preview.desc && (!s.split || side.length === 3);
+    html += `<div class="declare-row"><button id="declareBtn" class="btn primary small" ${ok ? '' : 'disabled'}>Confirm my cards</button>` +
+      ' <span class="declare-count"></span> <span class="muted">If you don\'t confirm in time, you muck.</span></div>';
+  } else if (declaring) {
+    html += previewHTML(s, cards, use);
+    html += '<div class="declare-row">✓ Confirmed — waiting for the others… <span class="declare-count"></span></div>';
+  }
+  info.innerHTML = html;
+  info.querySelectorAll('.use-row .card').forEach((el) => (el.onclick = () => toggleUse(+el.dataset.i)));
+  const b = $('declareBtn');
+  if (b) b.onclick = () => send({ type: 'declare', use, side: s.split ? side : null });
+  tickDeclare();
+}
+
+function previewHTML(s, cards, use) {
+  const pv = s.preview;
+  if (!pv) return '';
+  if (pv.error) return use.length ? `<div class="preview bad">${esc(pv.error)}</div>` : '<div class="preview">Click the cards you are using.</div>';
+  const mine = use.map((i) => cards[i]);
+  return `<div class="preview">Your hand: <b>${esc(pv.desc)}</b> — ` +
+    `${mine.length ? `your ${mine.map(pretty).join(' ')} + ` : ''}board ${pv.board.map(pretty).join(' ')}</div>`;
+}
+
+function toggleUse(i) {
+  const my = me();
+  let cur = [...(pendingUse || my.useIdx || [])];
+  cur = cur.includes(i) ? cur.filter((x) => x !== i) : [...cur, i];
+  pendingUse = cur;
+  send({ type: 'use', idx: cur });
+  renderMine(state, my);
 }
 
 let declareEnd = 0;
@@ -224,6 +274,10 @@ function toggleSide(i) {
   pendingSide = cur;
   if (my.sideIdx) my.sideIdx = null;  // edit locally until 3 are chosen again
   if (cur.length === 3) send({ type: 'split', idx: cur });
+  if (pendingUse && pendingUse.some((x) => cur.includes(x))) {  // a card can't be in both hands
+    pendingUse = pendingUse.filter((x) => !cur.includes(x));
+    send({ type: 'use', idx: pendingUse });
+  }
   renderMine(state, my);
 }
 
@@ -233,7 +287,7 @@ function renderActions(s, my) {
     acts.classList.add('hidden');
     const turn = s.seats.find((p) => p.turn);
     if (s.phase === 'choosing') wait.textContent = s.chooser === s.you ? '' : `${turn ? turn.name : 'Small blind'} is choosing the game…`;
-    else if (s.phase === 'declare') wait.innerHTML = `Showdown — players are making their final ${s.variant === '999' ? '999' : 'Theenpathi'} pick <span class="declare-count"></span>`;
+    else if (s.phase === 'declare') wait.innerHTML = 'Showdown — players are choosing their cards <span class="declare-count"></span>';
     else if (s.phase === 'handover') wait.textContent = s.canStart ? 'Next hand starting soon…' : 'Waiting for more players with chips…';
     else if (turn && s.started) wait.textContent = `Waiting for ${turn.name}…`;
     else wait.textContent = '';
@@ -299,16 +353,51 @@ function onTyped() {
   }
 }
 
+function cardRole(h, i) {
+  if (h.sideIdx && h.sideIdx.includes(i)) return 'side-card';
+  return h.use && h.use.includes(i) ? 'use-card' : 'unused';
+}
+
 function renderResult(s) {
   const box = $('result');
   if (s.phase !== 'handover' || !s.result) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
-  const pots = s.result.pots;
-  box.innerHTML = pots.map((p, i) => {
-    const label = pots.length > 1 ? (i === 0 ? 'Main pot' : `Side pot ${i}`) : 'Pot';
+  const r = s.result, won = {};
+  r.pots.forEach((p) => p.awards.forEach((a) => (won[a.id] = (won[a.id] || 0) + a.amount)));
+  let html = '';
+  if (!r.uncontested) {
+    html += '<div class="sd-title">Showdown</div><div class="sd-rows">';
+    s.seats.filter((p) => r.hands[p.id]).forEach((p) => {
+      const h = r.hands[p.id];
+      const hole = p.cards.map((c, i) => cardHTML(c, 'sm', h.mucked ? 'unused' : cardRole(h, i))).join('');
+      let detail;
+      if (h.mucked) detail = '<span class="muted">Mucked — didn\'t confirm in time</span>';
+      else {
+        const usedHole = h.use.map((i) => p.cards[i]);
+        detail = `<b>${esc(h.main)}</b><div class="sd-made">` +
+          `${usedHole.map((c) => cardHTML(c, 'sm', 'use-card')).join('')}` +
+          `${usedHole.length ? '<span class="plus">+</span>' : '<span class="muted">board only</span>'}` +
+          `${h.board.map((c) => cardHTML(c, 'sm')).join('')}</div>`;
+        if (h.side) {
+          const sc = h.sideIdx.map((i) => p.cards[i]);
+          detail += `<div class="sd-side">${esc(r.sideName)}: ${sc.map((c) => cardHTML(c, 'sm', 'side-card')).join('')} <b>${esc(h.side)}</b></div>`;
+        }
+      }
+      html += `<div class="sd-row ${won[p.id] ? 'won' : ''}">
+        <div class="sd-name">${won[p.id] ? '🏆 ' : ''}${esc(p.name)}${won[p.id] ? `<div class="sd-won">+${won[p.id]}</div>` : ''}</div>
+        <div class="sd-hole">${hole}</div>
+        <div class="sd-detail">${detail}</div></div>`;
+    });
+    html += '</div>';
+  }
+  html += r.pots.map((p, i) => {
+    const label = r.pots.length > 1 ? (i === 0 ? 'Main pot' : `Side pot ${i}`) : 'Pot';
     return `<div class="pot-line"><b>${label} (${p.amount})</b>: ` +
       p.awards.map((a) => `${esc(a.name)} wins ${a.amount} — ${esc(a.why)}`).join('; ') + '</div>';
   }).join('');
+  if (!r.uncontested) html += '<div class="sd-key"><span class="k use"></span> cards used' +
+    (r.sideName ? ` <span class="k side"></span> ${esc(r.sideName)} cards` : '') + '</div>';
+  box.innerHTML = html;
 }
 
 function renderScore(s) {

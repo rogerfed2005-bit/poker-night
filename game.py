@@ -3,12 +3,14 @@ import random
 import secrets
 import time
 
+from itertools import combinations
+
 import evaluator as ev
 
 STARTING_CHIPS = 200
 SMALL_BLIND = 1
 BIG_BLIND = 2
-DECLARE_SECONDS = 30   # time to make the final 999 / Theenpathi pick at showdown
+DECLARE_SECONDS = 60   # time to choose your cards at showdown (no choice = muck)
 
 VARIANTS = {
     'texas': {'name': "Texas Hold'em", 'hole': 2, 'split': False},
@@ -49,6 +51,7 @@ class Player:
         self.acted = False
         self.side_idx = None  # indices of the 3 hole cards used for 999 / Theenpathi
         self.declared = False # confirmed their final pick at showdown
+        self.use_idx = None   # hole cards chosen for the poker hand at showdown
         self.last_action = ''
 
     @property
@@ -307,17 +310,21 @@ class Game:
             {'id': w.id, 'name': w.name, 'amount': pot, 'why': 'Everyone else folded'}]}],
             'hands': {}})
 
+    # ----- showdown: each player picks which of their own cards they use -----
+
+    def allowed_counts(self):
+        """How many hole cards may go into the poker hand (for split games: of the 2 non-side cards)."""
+        return {'texas': (0, 1, 2), 'omaha': (2,), '135': (1, 3, 5),
+                '999': (0, 1, 2), 'theenpathi': (0, 1, 2)}[self.variant]
+
     def _reach_showdown(self):
-        """Split games pause here so everyone makes their final pick with the full board out."""
-        if VARIANTS[self.variant]['split']:
-            self.phase = 'declare'
-            self.to_act = -1
-            self.declare_deadline = time.time() + DECLARE_SECONDS
-            for q in self.players:
-                q.bet = 0
-            self.note(f'Showdown: pick your final {SIDE_GAME_NAME[self.variant]} cards')
-        else:
-            self._showdown()
+        """Pause with the full board out so everyone picks the cards they play."""
+        self.phase = 'declare'
+        self.to_act = -1
+        self.declare_deadline = time.time() + DECLARE_SECONDS
+        for q in self.players:
+            q.bet = 0
+        self.note('Showdown: choose the cards you are playing')
 
     def set_split(self, p, idx):
         if not VARIANTS.get(self.variant, {}).get('split') or not p.in_hand or p.folded:
@@ -327,41 +334,100 @@ class Game:
         idx = sorted(set(int(i) for i in idx))
         if len(idx) != 3 or any(i < 0 or i >= len(p.hole) for i in idx):
             raise ValueError('Pick exactly 3 cards')
+        if p.use_idx and set(p.use_idx) & set(idx):
+            p.use_idx = [i for i in p.use_idx if i not in idx]
         p.side_idx = idx
 
-    def declare(self, p, idx):
-        if self.phase != 'declare':
-            raise ValueError('You confirm your pick at showdown')
-        self.set_split(p, idx)
+    def _check_use(self, p, use):
+        """Returns an error message, or None if these hole cards are a legal choice."""
+        if VARIANTS[self.variant]['split']:
+            name = SIDE_GAME_NAME[self.variant]
+            if p.side_idx is None:
+                return f'First pick your 3 {name} cards'
+            if set(use) & set(p.side_idx):
+                return f'Those cards are in your {name} hand'
+        if len(use) not in self.allowed_counts():
+            words = {'omaha': 'exactly 2', '135': '1, 3 or 5'}.get(self.variant, '0, 1 or 2')
+            return f'Use {words} of your cards'
+        return None
+
+    def set_use(self, p, idx):
+        """Draft pick during the showdown (shown back as a preview only to that player)."""
+        if self.phase != 'declare' or not p.in_hand or p.folded:
+            raise ValueError('You choose your cards at showdown')
+        if p.declared:
+            raise ValueError('Your pick is final')
+        idx = sorted(set(int(i) for i in idx))
+        if any(i < 0 or i >= len(p.hole) for i in idx):
+            raise ValueError('Bad card')
+        p.use_idx = idx
+
+    def declare(self, p, use, side=None):
+        if self.phase != 'declare' or not p.in_hand or p.folded:
+            raise ValueError('You confirm your cards at showdown')
+        if p.declared:
+            raise ValueError('Your pick is final')
+        if VARIANTS[self.variant]['split']:
+            if side is None:
+                raise ValueError(f'Pick your 3 {SIDE_GAME_NAME[self.variant]} cards')
+            self.set_split(p, side)
+        self.set_use(p, use)
+        err = self._check_use(p, p.use_idx)
+        if err:
+            raise ValueError(err)
         p.declared = True
-        self.note(f'{p.name} confirmed their {SIDE_GAME_NAME[self.variant]} cards')
+        self.note(f'{p.name} is ready')
         if all(q.declared for q in self.contenders()):
             self._showdown()
 
     def finish_declare(self):
-        """Time's up: anyone who hasn't confirmed keeps their current pick (or the best 3 cards)."""
+        """Time's up: players who didn't confirm muck their hand."""
         if self.phase == 'declare':
             self._showdown()
 
-    def _evaluate(self, p):
+    def _hand_with(self, hole_cards):
+        """Best 5-card hand using exactly these hole cards, completed from the board."""
+        best = None
+        for b in combinations(self.board, 5 - len(hole_cards)):
+            score, desc = ev.eval5(list(hole_cards) + list(b))
+            if best is None or score > best[0]:
+                best = (score, desc, list(b))
+        return best
+
+    def preview(self, p):
+        if self.phase != 'declare' or not p.in_hand or p.folded or p.use_idx is None:
+            return None
+        err = self._check_use(p, p.use_idx)
+        if err:
+            return {'error': err}
+        score, desc, board_used = self._hand_with([p.hole[i] for i in p.use_idx])
+        return {'desc': desc, 'board': board_used}
+
+    def _evaluate(self, p, auto=False):
+        """auto=True finds the best hand (only used when nobody in a pot confirmed)."""
         v = self.variant
-        if v == 'texas':
-            s, d, _ = ev.best_holdem(p.hole, self.board)
-            return {'main': (s, d)}
-        if v == 'omaha':
-            s, d, _ = ev.best_omaha(p.hole, self.board)
-            return {'main': (s, d)}
-        if v == '135':
-            s, d, _ = ev.best_135(p.hole, self.board)
-            return {'main': (s, d)}
-        # split games: 3 cards go to the side game, the other 2 play Texas with the board
-        if p.side_idx is None:
-            p.side_idx = list(ev.best_999_split(p.hole) if v == '999' else ev.best_tp_split(p.hole))
-        side_cards = [p.hole[i] for i in p.side_idx]
-        texas_cards = [c for i, c in enumerate(p.hole) if i not in p.side_idx]
-        ts, td, _ = ev.best_holdem(texas_cards, self.board)
-        side = ev.eval_999(side_cards) if v == '999' else ev.eval_tp(side_cards)
-        return {'main': (ts, td), 'side': side}
+        split = VARIANTS[v]['split']
+        side_idx = p.side_idx
+        if split and auto and side_idx is None:
+            side_idx = list(ev.best_999_split(p.hole) if v == '999' else ev.best_tp_split(p.hole))
+        avail = [i for i in range(len(p.hole)) if not split or i not in side_idx]
+        if auto:
+            best = None
+            for k in self.allowed_counts():
+                for use in combinations(avail, k):
+                    score, desc, board_used = self._hand_with([p.hole[i] for i in use])
+                    if best is None or score > best[0]:
+                        best = (score, desc, board_used, list(use))
+            score, desc, board_used, use = best
+        else:
+            use = p.use_idx
+            score, desc, board_used = self._hand_with([p.hole[i] for i in use])
+        out = {'main': (score, desc), 'use': list(use), 'board': board_used}
+        if split:
+            side_cards = [p.hole[i] for i in side_idx]
+            out['side'] = ev.eval_999(side_cards) if v == '999' else ev.eval_tp(side_cards)
+            out['sideIdx'] = list(side_idx)
+        return out
 
     def _build_pots(self):
         levels = sorted({p.total_bet for p in self.players if p.total_bet > 0 and p.in_hand and not p.folded})
@@ -391,7 +457,16 @@ class Game:
 
     def _showdown(self):
         live = self.contenders()
-        evals = {p.id: self._evaluate(p) for p in live}
+        shown = {p.id: self._evaluate(p) for p in live if p.declared}
+        auto = {}
+
+        def ev_of(p):
+            if p.id in shown:
+                return shown[p.id]
+            if p.id not in auto:
+                auto[p.id] = self._evaluate(p, auto=True)
+            return auto[p.id]
+
         split = VARIANTS[self.variant]['split']
         side_name = SIDE_GAME_NAME.get(self.variant)
         result_pots = []
@@ -400,29 +475,33 @@ class Game:
             if len(elig) == 1:
                 self._split_amount(pot['amount'], elig, 'Uncalled / only player left', awards)
             else:
-                top = max(evals[p.id]['main'][0] for p in elig)
-                main_w = [p for p in elig if evals[p.id]['main'][0] == top]
-                main_label = 'Texas' if split else 'Best hand'
+                # a player who didn't confirm mucks; if nobody in this pot confirmed, best hands are used
+                contest = [p for p in elig if p.declared] or elig
+                top = max(ev_of(p)['main'][0] for p in contest)
+                main_w = [p for p in contest if ev_of(p)['main'][0] == top]
                 if split:
-                    stop = max(evals[p.id]['side'][0] for p in elig)
-                    side_w = [p for p in elig if evals[p.id]['side'][0] == stop]
+                    stop = max(ev_of(p)['side'][0] for p in contest)
+                    side_w = [p for p in contest if ev_of(p)['side'][0] == stop]
                     side_half = pot['amount'] // 2
-                    main_half = pot['amount'] - side_half
-                    self._split_amount(main_half, main_w,
-                                       f'{main_label}: {evals[main_w[0].id]["main"][1]}', awards)
+                    self._split_amount(pot['amount'] - side_half, main_w,
+                                       f'Texas: {ev_of(main_w[0])["main"][1]}', awards)
                     self._split_amount(side_half, side_w,
-                                       f'{side_name}: {evals[side_w[0].id]["side"][1]}', awards)
+                                       f'{side_name}: {ev_of(side_w[0])["side"][1]}', awards)
                 else:
-                    self._split_amount(pot['amount'], main_w, evals[main_w[0].id]['main'][1], awards)
+                    self._split_amount(pot['amount'], main_w, ev_of(main_w[0])['main'][1], awards)
             result_pots.append({'amount': pot['amount'], 'awards': awards})
         for pot in result_pots:
             for a in pot['awards']:
                 self.note(f'{a["name"]} wins {a["amount"]} — {a["why"]}')
         hands = {}
         for p in live:
-            e = evals[p.id]
-            hands[p.id] = {'main': e['main'][1], 'side': e['side'][1] if 'side' in e else None,
-                           'sideIdx': p.side_idx}
+            e = shown.get(p.id) or auto.get(p.id)
+            if e is None:
+                hands[p.id] = {'mucked': True}
+                continue
+            hands[p.id] = {'mucked': not p.declared, 'main': e['main'][1], 'use': e['use'],
+                           'board': e['board'], 'side': e['side'][1] if 'side' in e else None,
+                           'sideIdx': e.get('sideIdx')}
         self._finish({'uncontested': False, 'pots': result_pots, 'hands': hands, 'sideName': side_name})
 
     def auto_act(self):
@@ -442,7 +521,8 @@ class Game:
         me = self.find(viewer_id)
         seats = []
         for i, p in enumerate(self.players):
-            reveal = p.id == viewer_id or (showdown and p.in_hand and not p.folded)
+            mucked = showdown and self.result['hands'].get(p.id, {}).get('mucked')
+            reveal = p.id == viewer_id or (showdown and p.in_hand and not p.folded and not mucked)
             seats.append({
                 'id': p.id, 'name': p.name, 'chips': p.chips, 'bet': p.bet, 'connected': p.connected,
                 'sittingOut': p.sitting_out, 'declared': p.declared,
@@ -451,7 +531,8 @@ class Game:
                 'net': p.chips - p.buyins * STARTING_CHIPS + (p.total_bet if self.phase in STREETS + ['declare'] else 0),
                 'buyins': p.buyins, 'pendingBuyins': p.pending_buyins, 'dealer': i == self.dealer, 'sb': i == self.sb and self.started,
                 'bb': i == self.bb and self.started, 'turn': i == self.to_act and self.phase in STREETS + ['choosing'],
-                'sideIdx': p.side_idx if reveal else None,
+                'sideIdx': p.side_idx if p.id == viewer_id else None,
+                'useIdx': p.use_idx if p.id == viewer_id else None,
             })
         return {
             'code': self.code, 'you': viewer_id, 'hostId': self.host_id, 'started': self.started,
@@ -462,6 +543,8 @@ class Game:
             'chooser': self.players[self.sb].id if self.phase == 'choosing' else None,
             'legal': self.legal(me) if me else None, 'result': self.result, 'log': self.log[-25:],
             'handNo': self.hand_no, 'canStart': self.can_start_hand(),
+            'preview': self.preview(me) if me else None,
+            'allowed': list(self.allowed_counts()) if self.variant else [],
             'declareLeft': max(0, round(self.declare_deadline - time.time())) if self.phase == 'declare' else 0,
             'blinds': [SMALL_BLIND, BIG_BLIND], 'startingChips': STARTING_CHIPS,
         }
