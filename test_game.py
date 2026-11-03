@@ -1,0 +1,95 @@
+"""Run: py test_game.py"""
+import random
+
+import evaluator as ev
+from game import Game, VARIANTS, STREETS, STARTING_CHIPS
+
+
+def check_evaluators():
+    s = lambda cards: ev.eval5(cards.split())[0]
+    assert s('As Ks Qs Js Ts') > s('9h 9d 9c 9s 2h')        # royal > quads
+    assert s('Ah 2d 3c 4s 5h') < s('2d 3c 4s 5h 6h')        # wheel is the lowest straight
+    assert s('Kh Kd 2c 2s 9h') > s('Qh Qd Jc Js Ah')        # two pair by top pair
+    assert ev.eval_999('9s 8d 7c'.split())[0] == 987
+    assert ev.eval_999('Ts 9d Ac'.split())[0] == 900       # 10/J/Q/K/A are zeros
+    t = lambda cards: ev.eval_tp(cards.split())[0]
+    assert t('2s 2d 2c') > t('As Ks Qs')                    # trail > straight flush
+    assert t('4s 5s 6s') > t('As Kd Qc')                    # straight flush > straight
+    assert t('4h 5d 6c') > t('Ah Kh 9h')                    # straight > flush
+    assert t('Ah Kh 9h') > t('Ad Ac Kc')                    # flush > pair
+    assert t('As Kd Qc') > t('Ah 2d 3c')                    # AKQ top straight, A23 bottom
+    # Omaha must use exactly two hole cards: four hearts in hand + 1 on board is no flush
+    sc, desc, _ = ev.best_omaha('Ah Kh Qh Jh'.split(), '2h 7c 8d 9s 3c'.split())
+    assert 'Flush' not in desc, desc
+    # 1-3-5: with hole 5 hearts the player may use all five
+    sc, desc, _ = ev.best_135('2h 5h 7h 9h Jh'.split(), 'Ac Ad As Kc Kd'.split())
+    assert desc.startswith('Flush') or 'Full House' in desc
+    # ...but can't use exactly 2 hole cards: hole pair + board trips would need 2 hole + 3 board
+    sc, desc, _ = ev.best_135('Qh Qd 2c 3c 4d'.split(), 'Qs 9c 9d 7h 8s'.split())
+    assert desc == 'Three Queens', desc          # QQ+Q99 full house would need 2 hole + 3 board
+    print('evaluators ok')
+
+
+def play_random_hands(n_hands=3000, seed=1):
+    random.seed(seed)
+    g = Game('TEST')
+    players = [g.add_player(f'P{i}') for i in range(random.randint(2, 8))]
+    total = STARTING_CHIPS * len(players)
+    variants = list(VARIANTS)
+    for _ in range(n_hands):
+        for p in players:
+            if p.chips == 0:
+                g.rebuy(p)
+                total += STARTING_CHIPS
+        assert g.start_hand()
+        g.choose_variant(g.players[g.sb], random.choice(variants))
+        if VARIANTS[g.variant]['split']:
+            for p in g.in_hand_players():
+                if random.random() < 0.5:
+                    g.set_split(p, random.sample(range(5), 3))
+        steps = 0
+        while g.phase in STREETS:
+            p = g.players[g.to_act]
+            lg = g.legal(p)
+            r = random.random()
+            if r < 0.15 and not lg['canCheck']:
+                g.act(p, 'fold')
+            elif r < 0.3 and lg['canRaise']:
+                g.act(p, 'raise', random.randint(lg['minTo'], lg['maxTo']))
+            else:
+                g.act(p, 'check' if lg['canCheck'] else 'call')
+            steps += 1
+            assert steps < 500, 'hand never ended'
+        assert g.phase == 'handover'
+        assert sum(p.chips for p in players) == total, 'chips not conserved'
+        if not g.result['uncontested']:
+            assert len(g.board) == 5
+    print(f'{n_hands} random hands ok ({len(players)} players)')
+
+
+def check_999_split():
+    g = Game('T999')
+    a, b, c, d = (g.add_player(n) for n in 'ABCD')
+    g.start_hand()
+    g.choose_variant(g.players[g.sb], '999')
+    a.hole, b.hole = 'As Ad 2c 3d 4h'.split(), '9s 9d 8c 2s 3s'.split()
+    c.hole, d.hole = '9c 9h 8d 2h 3h'.split(), '4c 4d 5h 5d 7d'.split()
+    g.set_split(a, [2, 3, 4]); g.set_split(b, [0, 1, 2]); g.set_split(c, [0, 1, 2]); g.set_split(d, [2, 3, 4])
+    g.deck = 'Jh 6d 5c 6h 7s Qd Kc 6s'.split()   # popped from the end: burn, Kc Qd 7s, burn, 5c, burn, Jh
+    while g.phase in STREETS:
+        p = g.players[g.to_act]
+        g.act(p, 'check' if g.legal(p)['canCheck'] else 'call')
+    won = {}
+    for pot in g.result['pots']:
+        for aw in pot['awards']:
+            won[aw['name']] = won.get(aw['name'], 0) + aw['amount']
+    # pot 8: A takes the Texas half (4), B and C tie 998 and get a quarter each (2)
+    assert won == {'A': 4, 'B': 2, 'C': 2}, won
+    print('999 split ok')
+
+
+if __name__ == '__main__':
+    check_evaluators()
+    check_999_split()
+    for seed in range(1, 6):
+        play_random_hands(seed=seed)

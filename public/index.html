@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Poker Night</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Home -->
+  <section id="home" class="screen">
+    <div class="home-card">
+      <h1>Poker Night</h1>
+      <p class="sub">Texas · 999 · 1 3 5 · Theenpathi · Omaha</p>
+      <label>Your name <input id="name" maxlength="16" placeholder="e.g. Shri" autocomplete="off"></label>
+      <button id="hostBtn" class="btn primary wide">Host a new game</button>
+      <div class="or"><span>or join with a code</span></div>
+      <div class="row">
+        <input id="joinCode" maxlength="5" placeholder="CODE" autocomplete="off">
+        <button id="joinBtn" class="btn">Join</button>
+      </div>
+      <p class="hint">Everyone starts with 200 chips. Blinds 1 / 2.</p>
+      <p id="homeErr" class="err"></p>
+    </div>
+  </section>
+
+  <!-- Game -->
+  <section id="game" class="screen hidden">
+    <header class="topbar">
+      <div class="code-box" id="codeBox" title="Copy invite link">
+        <span class="label">Game code</span> <b id="codeText"></b> <span class="copy" id="copyMsg">copy link</span>
+      </div>
+      <div id="handInfo" class="hand-info"></div>
+      <div class="top-actions">
+        <button id="rulesBtn" class="btn small ghost">Rules</button>
+        <button id="sitBtn" class="btn small ghost">Sit out</button>
+        <button id="rebuyBtn" class="btn small hidden">Rebuy 200</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <div class="table-area">
+        <div class="table" id="table">
+          <div class="felt">
+            <div class="center">
+              <div id="variantLabel" class="variant-label"></div>
+              <div id="board" class="board"></div>
+              <div id="pot" class="pot"></div>
+              <div id="lobbyBox" class="lobby-box hidden"></div>
+            </div>
+          </div>
+          <div id="seats"></div>
+        </div>
+
+        <div id="result" class="result hidden"></div>
+
+        <div class="me-panel">
+          <div class="my-hand">
+            <div id="myCards" class="my-cards"></div>
+            <div id="splitInfo" class="split-info"></div>
+          </div>
+          <div id="actions" class="actions hidden">
+            <div class="action-btns">
+              <button id="foldBtn" class="btn danger">Fold</button>
+              <button id="checkBtn" class="btn">Check</button>
+              <button id="raiseBtn" class="btn primary">Raise</button>
+            </div>
+            <div id="raiseBox" class="raise-box">
+              <div class="presets">
+                <button data-p="min" class="btn tiny ghost">Min</button>
+                <button data-p="half" class="btn tiny ghost">½ Pot</button>
+                <button data-p="pot" class="btn tiny ghost">Pot</button>
+                <button data-p="all" class="btn tiny ghost">All-in</button>
+              </div>
+              <div class="slider-row">
+                <input id="raiseSlider" type="range">
+                <input id="raiseInput" type="number">
+              </div>
+            </div>
+          </div>
+          <div id="waitMsg" class="wait-msg"></div>
+        </div>
+      </div>
+
+      <aside class="side">
+        <h3>Table log</h3>
+        <div id="log" class="log"></div>
+        <h3>Chat</h3>
+        <div id="chat" class="chat"></div>
+        <form id="chatForm" class="chat-form">
+          <input id="chatInput" maxlength="200" placeholder="Say something…" autocomplete="off">
+          <button class="btn small">Send</button>
+        </form>
+      </aside>
+    </main>
+  </section>
+
+  <!-- Variant chooser (small blind) -->
+  <div id="chooser" class="modal hidden">
+    <div class="modal-card">
+      <h2>You're the small blind — pick the game</h2>
+      <div id="variantList" class="variant-list"></div>
+    </div>
+  </div>
+
+  <!-- Rules -->
+  <div id="rules" class="modal hidden">
+    <div class="modal-card">
+      <h2>Variations</h2>
+      <div id="rulesList" class="variant-list static"></div>
+      <button class="btn wide" id="rulesClose">Close</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
