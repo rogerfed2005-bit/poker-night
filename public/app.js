@@ -236,14 +236,18 @@ function renderSeats(s, my) {
     const isMe = p.id === s.you;
     const h = hands[p.id];
     const cls = ['seat', isMe && 'me', p.turn && 'turn', p.folded && p.inHand && 'folded', !p.connected && 'offline', won[p.id] && 'winner'].filter(Boolean).join(' ');
-    let cards = '';
-    if (p.inHand && p.folded && s.phase !== 'lobby') cards = '<div class="fold-mark"><b>✕</b>FOLD</div>';
-    else if (isMe) cards = myCardsHTML(s, p);
+    let cards = '', nCards = p.cards.length;
+    const faceUp = p.cards.length > 0 && p.cards[0] !== '??';
+    if (p.inHand && p.folded && s.phase !== 'lobby') {
+      // folded: you still see your own cards; others see them only if the player chose to show
+      if (faceUp) cards = (isMe ? myCardsHTML(s, p) : p.cards.map((c) => cardHTML(c, 'dim')).join('')) + '<span class="fold-tag">FOLD</span>';
+      else { cards = '<div class="fold-mark"><b>✕</b>FOLD</div>'; nCards = 0; }
+    } else if (isMe) cards = myCardsHTML(s, p);
     else cards = p.cards.map((c, ci) => cardHTML(c, h && !h.mucked ? cardRole(h, ci) : '')).join('');
-    const nCards = p.folded ? 0 : p.cards.length;
     const picking = s.phase === 'declare' && p.inHand && !p.folded;
     let status = '';
     if (picking) status = p.declared ? 'READY ✓' : 'CHOOSING…';
+    else if (p.folded && p.shown && p.inHand && ACTIVE.includes(s.phase)) status = STREETS.includes(s.phase) && isMe ? 'WILL SHOW' : 'SHOWN';
     else if (p.pendingCashout) status = 'LEAVING';
     else if (p.sittingOut) status = 'AWAY';
     else if (!p.connected) status = 'OFFLINE';
@@ -374,7 +378,7 @@ function renderMine(s, my) {
     pendingUse = my.useIdx || [];
     send({ type: 'use', idx: pendingUse });
   }
-  $('myHand').innerHTML = cards.length && !(my.folded && s.phase !== 'handover') ? myCardsHTML(s, my) : '';
+  $('myHand').innerHTML = cards.length ? myCardsHTML(s, my) : '';
 
   if (!live || s.phase === 'handover') { info.innerHTML = ''; return; }
   let html = '';
@@ -497,10 +501,13 @@ function hideActs() {
 }
 
 function canShow(s, my) {
-  // after a hand, cards that weren't revealed at showdown can be shown
+  // folded players can choose to show (revealed once betting is over); after a hand, any unrevealed cards
+  if (!my.inHand || !my.cards.length || my.shown) return false;
+  if (ACTIVE.includes(s.phase)) return my.folded;
   const h = s.result && s.result.hands && s.result.hands[my.id];
-  return s.phase === 'handover' && my.cards.length > 0 && !my.shown && !(h && !h.mucked);
+  return s.phase === 'handover' && !(h && !h.mucked);
 }
+function showLabel(s) { return ['declare', 'handover'].includes(s.phase) ? 'SHOW CARDS' : 'SHOW AT SHOWDOWN'; }
 
 function dockMessage(s, my) {
   const turn = s.seats.find((p) => p.turn);
@@ -511,7 +518,9 @@ function dockMessage(s, my) {
   }
   const parts = [];
   if (canShow(s, my)) {
-    parts.push('<button class="btn small" data-do="show">SHOW CARDS</button>');
+    parts.push(`${my.folded && ACTIVE.includes(s.phase) ? 'You folded ' : ''}<button class="btn small" data-do="show">${showLabel(s)}</button>`);
+  } else if (my.folded && my.shown && STREETS.includes(s.phase)) {
+    parts.push(`You folded · your cards will be shown at showdown <button class="btn small" data-do="unshow">DON'T SHOW</button>`);
   }
   if (my.chips === 0 && !my.pendingCashout && !inLiveHand(s, my)) {
     parts.push(`You're out of chips <button class="btn green small" data-do="rebuy">BUY IN ${fmt(s.startingChips)}</button>`);
@@ -679,7 +688,9 @@ function renderDrawer(s, my, full) {
     html += opt(`Buy in +${fmt(s.startingChips)}`, live ? 'Available when this hand is over' : `You've bought in ${my.buyins} time${my.buyins === 1 ? '' : 's'}`,
       'data-do="rebuy"', live || my.pendingCashout);
     html += opt(my.sittingOut ? "I'm back" : 'Away', my.sittingOut ? 'Deal me in again' : 'Keep your seat but skip the next hands', `data-do="${my.sittingOut ? 'back' : 'away'}"`);
-    if (canShow(s, my)) html += opt('Show my cards', 'Reveal your last hand to the table', 'data-do="show"');
+    if (canShow(s, my)) html += opt(STREETS.includes(s.phase) ? 'Show my cards at showdown' : 'Show my cards',
+      STREETS.includes(s.phase) ? 'Revealed when betting is over' : 'Reveal your hand to the table', 'data-do="show"');
+    else if (my.folded && my.shown && STREETS.includes(s.phase)) html += opt("Don't show my cards", 'Cancel showing at showdown', 'data-do="unshow"');
     html += opt(my.pendingCashout ? 'Leaving after this hand…' : 'Leave seat', `Cash out ${fmt(my.chips)} chips and watch`, 'data-do="leave"', my.pendingCashout, 'warn');
   } else if (my.seatRequest !== null) {
     html += opt('Cancel seat request', `Seat ${my.seatRequest + 1}, waiting for the host`, 'data-do="unsit"');
@@ -962,7 +973,8 @@ function doAction(what) {
     case 'start': send({ type: 'start' }); break;
     case 'copy': copyInvite(); break;
     case 'details': $('sdBody').innerHTML = showdownHTML(s); $('sdModal').classList.remove('hidden'); break;
-    case 'show': send({ type: 'show' }); break;
+    case 'show': send({ type: 'show', value: true }); break;
+    case 'unshow': send({ type: 'show', value: false }); break;
     case 'rebuy':
       if (confirm(`Buy in for another ${s.startingChips} chips?`)) send({ type: 'rebuy' });
       break;

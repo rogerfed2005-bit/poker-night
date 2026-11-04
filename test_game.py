@@ -435,6 +435,44 @@ def check_kick():
     print('host can remove players ok')
 
 
+def check_show_folded():
+    g, (a, b, c) = table(3)
+    def seen_by(viewer, p):
+        return next(x for x in g.view(viewer.id)['seats'] if x['id'] == p.id)['cards']
+    f = g.players[g.to_act]
+    others = [q for q in (a, b, c) if q is not f]
+    assert refused(g.show_cards, others[0])          # still in the hand: can't show mid-hand
+    g.act(f, 'fold')
+    assert seen_by(f, f) == f.hole                   # you still see your own folded cards
+    assert seen_by(others[0], f) == []               # others don't
+    g.show_cards(f)
+    assert seen_by(others[0], f) == []               # not while betting goes on
+    g.show_cards(f, False)                           # changed their mind
+    g.show_cards(f)
+    while g.phase in STREETS:
+        q = g.players[g.to_act]
+        g.act(q, 'check' if g.legal(q)['canCheck'] else 'call')
+    assert g.phase == 'declare'
+    assert seen_by(others[0], f) == f.hole           # revealed at showdown
+    assert refused(g.show_cards, f, False)           # can't hide once shown
+    finish_by_declaring(g)
+    assert seen_by(others[0], f) == f.hole
+    assert any(l.startswith(f'{f.name} shows') for l in g.log)
+    # folded, then everyone else folds: still revealed when the hand ends
+    g, (a, b, c) = table(3)
+    f = g.players[g.to_act]
+    g.act(f, 'fold')
+    g.show_cards(f)
+    q = g.players[g.to_act]
+    g.act(q, 'fold')
+    assert g.phase == 'handover'
+    w = next(x for x in (a, b, c) if x not in (f, q))
+    assert seen_by(w, f) == f.hole and seen_by(w, q) == []
+    g.show_cards(q)                                  # after the hand anyone dealt in may show
+    assert seen_by(w, q) == q.hole
+    print('show cards after folding ok')
+
+
 def check_allin_gets_showdown_pick():
     g = Game('TALL')
     a, b = g.add_player('A'), g.add_player('B')
@@ -458,5 +496,6 @@ if __name__ == '__main__':
     check_no_confirm_mucks()
     check_cash_out()
     check_kick()
+    check_show_folded()
     for seed in range(1, 6):
         play_random_hands(seed=seed)

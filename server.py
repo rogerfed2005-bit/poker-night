@@ -216,7 +216,7 @@ def handle(room, p, t, data):
     elif t == 'makehost':
         g.make_host(p, g.find(data.get('id')))
     elif t == 'show':
-        g.show_cards(p)
+        g.show_cards(p, data.get('value', True) is not False)
     elif t == 'emote':
         g.emote_at(p, data.get('e'))
     elif t == 'rebuy':

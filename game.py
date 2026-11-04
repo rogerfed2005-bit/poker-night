@@ -70,7 +70,8 @@ class Player:
         self.side_idx = None  # indices of the 3 hole cards used for 999 / Theenpathi
         self.declared = False # confirmed their final pick at showdown
         self.use_idx = None   # hole cards chosen for the poker hand at showdown
-        self.shown = False    # chose to show their cards after the hand
+        self.shown = False    # chose to show their cards (revealed at showdown / after the hand)
+        self.shown_noted = False
         self.last_action = ''
 
     @property
@@ -288,11 +289,29 @@ class Game:
             raise ValueError('Unknown reaction')
         p.emote, p.emote_t = e, time.time()
 
-    def show_cards(self, p):
-        if self.phase != 'handover' or p not in self.players or not p.hole:
+    def show_cards(self, p, value=True):
+        """Choose to show your cards. A folded player can ask during the hand; they are
+        revealed once betting is over (showdown, or when the hand ends)."""
+        if p not in self.players or not p.hole or not p.in_hand:
             raise ValueError('Nothing to show')
+        revealing = self.phase in ('declare', 'handover')
+        if self.phase in ACTIVE and not p.folded:
+            raise ValueError('You can show your cards once the hand is over')
+        if not revealing and self.phase not in ACTIVE:
+            raise ValueError('Nothing to show')
+        if not value:
+            if revealing and p.shown:
+                raise ValueError('Your cards are already shown')
+            p.shown = False
+            return
         p.shown = True
-        self.note(f'{p.name} shows {" ".join(p.hole)}')
+        if revealing:
+            self._note_shown(p)
+
+    def _note_shown(self, p):
+        if p.shown and not p.shown_noted:
+            p.shown_noted = True
+            self.note(f'{p.name} shows {" ".join(p.hole)}')
 
     # ----- host settings and pause -----
 
@@ -560,6 +579,8 @@ class Game:
             if q.pending_cashout:
                 self._do_cashout(q)
         self.phase = 'handover'
+        for q in self.players:
+            self._note_shown(q)
         self.to_act = -1
         self.turn_deadline = 0
         self.declare_deadline = 0
@@ -589,6 +610,8 @@ class Game:
         for q in self.players:
             q.bet = 0
         self.note('Showdown: choose the cards you are playing')
+        for q in self.players:
+            self._note_shown(q)
 
     def set_split(self, p, idx):
         if not VARIANTS.get(self.variant, {}).get('split') or not p.in_hand or p.folded:
@@ -795,7 +818,7 @@ class Game:
             mucked = showdown and self.result['hands'].get(p.id, {}).get('mucked')
             reveal = p.id == viewer_id or (in_roster and p.hole and (
                 (showdown and p.in_hand and not p.folded and not mucked) or
-                (self.phase == 'handover' and p.shown)))
+                (self.phase in ('declare', 'handover') and p.shown)))
             live_cards = in_roster and p.in_hand and not p.folded
             seats.append({
                 'id': p.id, 'name': p.name, 'seat': p.seat, 'seatRequest': p.seat_request,
