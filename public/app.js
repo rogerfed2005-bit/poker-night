@@ -45,14 +45,25 @@ function connect(first) {
       show('game');
     } else if (m.type === 'state') {
       state = m.state; chat = m.chat || []; render();
+    } else if (m.type === 'kicked') {
+      leaveTable(m.message);
     } else if (m.type === 'error') {
-      if (/no longer available|No game with code/.test(m.message) && !state) {
+      if (/removed you/.test(m.message)) leaveTable(m.message);
+      else if (/no longer available|No game with code/.test(m.message) && !state) {
         saveSession(null); show('home'); $('homeErr').textContent = m.message;
       } else if ($('home').classList.contains('hidden')) toast(m.message);
       else $('homeErr').textContent = m.message;
     }
   };
   ws.onclose = () => { if (session) setTimeout(() => connect(), 1500); };
+}
+function leaveTable(message) {
+  saveSession(null);
+  state = null;
+  history.replaceState(null, '', '/');
+  ['chooser', 'ledger', 'rules'].forEach((id) => $(id).classList.add('hidden'));
+  show('home');
+  $('homeErr').textContent = message;
 }
 function send(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
 
@@ -113,7 +124,7 @@ function renderLobby(s, my) {
   box.innerHTML = `
     <div>Share this code with your friends</div>
     <div class="big-code">${esc(s.code)}</div>
-    <div>${s.seats.length} player${s.seats.length === 1 ? '' : 's'} at the table</div>
+    <div>${s.seats.filter((p) => !p.kicked).length} player${s.seats.filter((p) => !p.kicked).length === 1 ? '' : 's'} at the table</div>
     ${isHost ? `<button class="btn primary" id="startBtn" ${s.canStart ? '' : 'disabled'}>${s.canStart ? 'Start game' : 'Need 2+ players'}</button>`
              : '<div style="color:rgba(255,255,255,.7)">Waiting for the host to start…</div>'}`;
   const b = $('startBtn'); if (b) b.onclick = () => send({ type: 'start' });
@@ -130,16 +141,19 @@ function seatPositions(n) {
 }
 
 function renderSeats(s) {
-  const n = s.seats.length;
-  const myIdx = s.seats.findIndex((x) => x.id === s.you);
+  const seated = s.seats.filter((p) => !p.kicked);
+  const n = seated.length;
+  const myIdx = seated.findIndex((x) => x.id === s.you);
+  const isHost = s.hostId === s.you;
   const pos = seatPositions(n);
   const hands = (s.result && s.result.hands) || {};
   const winners = new Set();
   if (s.result) s.result.pots.forEach((p) => p.awards.forEach((a) => winners.add(a.id)));
   let html = '';
-  s.seats.forEach((p, i) => {
+  seated.forEach((p, i) => {
     const k = (i - myIdx + n) % n, at = pos[k];
-    const cls = ['seat', p.turn && 'turn', p.id === s.you && 'me', p.folded && 'folded', !p.connected && 'offline'].filter(Boolean).join(' ');
+    const canKick = isHost && p.id !== s.you;
+    const cls = ['seat', p.turn && 'turn', p.id === s.you && 'me', p.folded && 'folded', !p.connected && 'offline', canKick && 'kickable'].filter(Boolean).join(' ');
     const showCards = p.id !== s.you || s.phase === 'handover';
     const h = hands[p.id];
     const cards = showCards ? p.cards.map((c, ci) => cardHTML(c, 'sm', h && !h.mucked ? cardRole(h, ci) : '')).join('') : '';
@@ -150,9 +164,9 @@ function renderSeats(s) {
     }
     const picking = s.phase === 'declare' && p.inHand && !p.folded;
     const status = picking ? (p.declared ? 'Ready ✓' : 'Picking…') : p.cashedOut ? 'Cashed out' : p.allIn ? 'All-in' : (!p.inHand && s.started ? (p.chips === 0 ? 'Out of chips' : p.sittingOut ? 'Sitting out' : 'Next hand') : p.lastAction);
-    html += `<div class="${cls}" style="left:${at.x}%;top:${at.y}%">
+    html += `<div class="${cls}" style="left:${at.x}%;top:${at.y}%"${canKick ? ` data-kick="${esc(p.id)}" title="Remove ${esc(p.name)}"` : ''}>
       <div class="cards">${cards}</div>
-      <div class="plate">
+      <div class="plate">${canKick ? '<span class="kick-x" aria-hidden="true">✕</span>' : ''}
         <div class="badges">
           ${p.id === s.hostId ? '<span class="badge host">HOST</span>' : ''}
           ${p.dealer ? '<span class="badge d">D</span>' : ''}${p.sb ? '<span class="badge sb">SB</span>' : ''}${p.bb ? '<span class="badge bb">BB</span>' : ''}
@@ -430,7 +444,7 @@ const ledgerOpen = new Set();   // player ids whose details are expanded
 
 function ledgerRows(s) {
   return s.seats.map((p) => ({
-    id: p.id, name: p.name, you: p.id === s.you, history: p.history || [], buyins: p.buyins,
+    id: p.id, name: p.name, you: p.id === s.you, kicked: p.kicked, history: p.history || [], buyins: p.buyins,
     buyin: p.buyinTotal, buyout: p.buyout, stack: p.net - p.buyout + p.buyinTotal, net: p.net,
   }));
 }
@@ -447,7 +461,7 @@ function renderLedger(s) {
   $('ledgerBody').innerHTML = rows.map((r) => {
     const cls = r.net > 0 ? 'up' : r.net < 0 ? 'down' : '';
     let html = `<tr class="lrow ${r.you ? 'me' : ''}">
-      <td class="l" data-details="${esc(r.id)}"><span class="lname">${esc(r.name)}<span class="caret">${ledgerOpen.has(r.id) ? '▴' : '▾'}</span></span> <span class="lid">@ ${esc(r.id)}</span></td>
+      <td class="l" data-details="${esc(r.id)}"><span class="lname">${esc(r.name)}${r.kicked ? ' <span class="removed">removed</span>' : ''}<span class="caret">${ledgerOpen.has(r.id) ? '▴' : '▾'}</span></span> <span class="lid">@ ${esc(r.id)}</span></td>
       <td class="ldet"><button class="btn tiny ghost" data-details="${esc(r.id)}">${ledgerOpen.has(r.id) ? 'Hide' : 'Details'}</button></td>
       <td>${r.buyin}</td><td>${r.buyout}</td><td>${r.stack}</td><td class="${cls}">${fmtNet(r.net)}</td></tr>`;
     if (ledgerOpen.has(r.id)) {
@@ -482,7 +496,7 @@ function renderScore(s) {
   const rows = [...s.seats].sort((a, b) => b.net - a.net).map((p) => {
     const net = p.net > 0 ? `+${p.net}` : `${p.net}`;
     const pend = p.pendingBuyins ? ` <span class="pend">+${p.pendingBuyins}</span>` : '';
-    return `<tr class="${p.id === s.you ? 'me' : ''}"><td>${esc(p.name)}</td><td>${p.buyins}${pend}</td>` +
+    return `<tr class="${p.id === s.you ? 'me' : ''}"><td>${esc(p.name)}${p.kicked ? ' <span class="removed">removed</span>' : ''}</td><td>${p.buyins}${pend}</td>` +
       `<td>${p.chips}</td><td class="${p.net > 0 ? 'up' : p.net < 0 ? 'down' : ''}">${net}</td></tr>`;
   }).join('');
   $('score').innerHTML = `<tr><th>Player</th><th>Buy-ins</th><th>Chips</th><th>+/−</th></tr>${rows}`;
@@ -524,7 +538,7 @@ function start(type) {
   saveSession(null);
   if (ws) { ws.onclose = null; ws.close(); }
   connect(msg);
-  ws.addEventListener('close', () => { if (!session) $('homeErr').textContent = 'Could not reach the server'; });
+  ws.addEventListener('close', () => { if (!session && !$('homeErr').textContent) $('homeErr').textContent = 'Could not reach the server'; });
 }
 $('hostBtn').onclick = () => start('create');
 $('joinBtn').onclick = () => start('join');
@@ -579,6 +593,17 @@ $('ledgerBtn').onclick = () => { $('ledger').classList.remove('hidden'); renderL
 $('ledgerClose').onclick = () => $('ledger').classList.add('hidden');
 $('ledger').onclick = (e) => { if (e.target.id === 'ledger') $('ledger').classList.add('hidden'); };
 $('ledgerDownload').onclick = downloadLedger;
+$('seats').onclick = (e) => {
+  const seat = e.target.closest('[data-kick]');
+  if (!seat || !state || state.hostId !== state.you) return;
+  const p = state.seats.find((x) => x.id === seat.dataset.kick);
+  if (!p) return;
+  const inHand = p.inHand && !p.folded && !['lobby', 'handover'].includes(state.phase);
+  if (confirm(`Remove ${p.name} from the table?` + (inHand ? ' They will fold this hand.' : '') +
+      ` Their ${p.chips} chips will be cashed out in the ledger, and they won't be able to rejoin this game.`)) {
+    send({ type: 'kick', id: p.id });
+  }
+};
 document.querySelector('.ledger-table thead').onclick = (e) => {
   const k = e.target.dataset.sort; if (!k) return;
   ledgerSort = ledgerSort.key === k ? { key: k, dir: -ledgerSort.dir } : { key: k, dir: -1 };

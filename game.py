@@ -40,6 +40,7 @@ class Player:
         self.buyout = 0          # chips taken off the table by cashing out
         self.pending_cashout = False
         self.cashed_out = False
+        self.kicked = False      # removed by the host: can't rejoin, kept in the ledger
         self.history = [{'t': time.time(), 'kind': 'Buy-in', 'amount': STARTING_CHIPS}]
         self.connected = True
         self.sitting_out = False
@@ -110,6 +111,8 @@ class Game:
 
     def rebuy(self, p):
         """Buy in for another stack at any time; mid-hand it is added once the hand ends."""
+        if p.kicked:
+            raise ValueError('You were removed from this game')
         if p.in_hand and not p.folded and self.phase in STREETS + ['choosing', 'declare']:
             p.pending_buyins += 1
             self.note(f'{p.name} bought in for {STARTING_CHIPS} (added after this hand)')
@@ -167,6 +170,37 @@ class Game:
         return [p for p in self.players if p.in_hand and not p.folded]
 
     # ----- hand flow -----
+
+    def kick(self, host, p):
+        """Host removes a player: they fold if in a hand, their stack is cashed out, and they can't rejoin."""
+        if host.id != self.host_id:
+            raise ValueError('Only the host can remove players')
+        if p is None or p.kicked:
+            raise ValueError('That player is not at the table')
+        if p is host:
+            raise ValueError("You can't remove yourself")
+        if self.phase == 'choosing' and self.players[self.sb] is p:
+            self.choose_variant(p, 'texas')       # the game can't wait for their pick
+        p.kicked = True
+        p.connected = False
+        if p.in_hand and not p.folded and self.phase in STREETS + ['choosing', 'declare']:
+            p.folded = True
+            p.last_action = 'Removed'
+            if self.phase in STREETS and self.to_act >= 0 and self.players[self.to_act] is p:
+                self._after_action()              # it was their turn: move on
+            elif len(self.contenders()) == 1 and self.phase != 'choosing':
+                self._win_uncontested(self.contenders()[0])
+            elif self.phase == 'declare' and all(q.declared for q in self.contenders()):
+                self._showdown()
+            elif self.phase == 'choosing':
+                pass                              # cards aren't dealt yet; they'll simply sit this hand out folded
+        while p.pending_buyins:                   # a buy-in they made this hand still counts
+            p.pending_buyins -= 1
+            self._add_buyin(p)
+        p.pending_cashout = False
+        p.cashed_out = False
+        self._do_cashout(p)
+        self.note(f'{p.name} was removed by the host')
 
     def can_start_hand(self):
         return sum(1 for p in self.players if p.chips > 0 and p.connected and not p.sitting_out) >= 2
@@ -554,7 +588,7 @@ class Game:
             reveal = p.id == viewer_id or (showdown and p.in_hand and not p.folded and not mucked)
             seats.append({
                 'id': p.id, 'name': p.name, 'chips': p.chips, 'bet': p.bet, 'connected': p.connected,
-                'sittingOut': p.sitting_out, 'declared': p.declared,
+                'sittingOut': p.sitting_out, 'declared': p.declared, 'kicked': p.kicked,
                 'inHand': p.in_hand, 'folded': p.folded, 'allIn': p.all_in, 'lastAction': p.last_action,
                 'cards': p.hole if reveal else (['??'] * len(p.hole) if p.in_hand and not p.folded else []),
                 'net': p.chips + p.buyout - p.buyins * STARTING_CHIPS + (p.total_bet if self.phase in STREETS + ['declare'] else 0),

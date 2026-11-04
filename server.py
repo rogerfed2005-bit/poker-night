@@ -47,6 +47,11 @@ async def send(ws, msg):
             pass
 
 
+async def send_and_close(ws, msg):
+    await send(ws, msg)
+    await ws.close()
+
+
 async def broadcast(room):
     g = room.game
     g.ensure_host()
@@ -132,6 +137,8 @@ def attach(data, ws):
         p = next((p for p in g.players if p.token == data.get('token')), None)
         if p is None:
             raise ValueError('Your seat is no longer available')
+        if p.kicked:
+            raise ValueError('The host removed you from this game')
         if p.id in room.sockets:  # an older tab is still open: take over
             asyncio.ensure_future(room.sockets[p.id].close())
         g.note(f'{p.name} reconnected')
@@ -139,18 +146,22 @@ def attach(data, ws):
     if not name:
         raise ValueError('Enter your name')
     same = next((p for p in g.players if p.name.lower() == name.lower()), None)
+    if same and same.kicked:
+        raise ValueError('The host removed you from this game')
     if same and not same.connected:  # lost their tab: rejoining with the same name takes the seat back
         g.note(f'{same.name} reconnected')
         return room, same
     if same:
         raise ValueError('That name is taken at this table')
-    if len(g.players) >= MAX_PLAYERS:
+    if sum(1 for p in g.players if not p.kicked) >= MAX_PLAYERS:
         raise ValueError(f'Table is full ({MAX_PLAYERS} players max)')
     return room, g.add_player(name)
 
 
 def handle(room, p, t, data):
     g = room.game
+    if p.kicked:
+        raise ValueError('The host removed you from this game')
     if t == 'start':
         if p.id != g.host_id:
             raise ValueError('Only the host can start the game')
@@ -172,6 +183,12 @@ def handle(room, p, t, data):
         g.rebuy(p)
     elif t == 'cashout':
         g.cash_out(p)
+    elif t == 'kick':
+        target = g.find(data.get('id'))
+        g.kick(p, target)
+        ws = room.sockets.pop(target.id, None)
+        if ws is not None:
+            asyncio.ensure_future(send_and_close(ws, {'type': 'kicked', 'message': 'The host removed you from this game'}))
     elif t == 'sitout':
         p.sitting_out = bool(data.get('value'))
         g.note(f'{p.name} is {"sitting out" if p.sitting_out else "back"}')

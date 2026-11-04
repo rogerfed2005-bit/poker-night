@@ -58,7 +58,7 @@ def play_random_hands(n_hands=3000, seed=1):
     variants = list(VARIANTS)
     for _ in range(n_hands):
         for p in players:
-            if p.chips == 0:
+            if p.chips == 0 and not p.kicked:
                 g.rebuy(p)
                 total += STARTING_CHIPS
         assert g.start_hand()
@@ -71,11 +71,17 @@ def play_random_hands(n_hands=3000, seed=1):
         while g.phase in STREETS:
             p = g.players[g.to_act]
             lg = g.legal(p)
+            if lg is None:                      # hand ended by a removal inside this loop
+                break
             if random.random() < 0.01:          # buy-ins at random moments, mid-hand too
-                g.rebuy(random.choice(players))
+                g.rebuy(random.choice([q for q in players if not q.kicked]))
                 total += STARTING_CHIPS
+            seated = [q for q in players if not q.kicked]
+            if random.random() < 0.003 and len(seated) > 3 and g.phase in STREETS:
+                g.kick(g.find(g.host_id), random.choice([q for q in seated if q.id != g.host_id]))
+                continue                        # whose turn it is may have changed
             if random.random() < 0.005:         # cash-outs too
-                q = random.choice(players)
+                q = random.choice([q for q in players if not q.kicked])
                 if not (q.cashed_out or q.pending_cashout):
                     g.cash_out(q)
             r = random.random()
@@ -260,6 +266,74 @@ def check_cash_out():
     print('cash out ok')
 
 
+def table(n, variant='texas'):
+    g = Game('TK')
+    ps = [g.add_player(c) for c in 'ABCDEFGH'[:n]]
+    g.start_hand()
+    if variant:
+        g.choose_variant(g.players[g.sb], variant)
+    return g, ps
+
+
+def conserved(g):
+    in_pot = sum(p.total_bet for p in g.players) if g.phase != 'handover' else 0
+    return sum(p.chips + p.buyout for p in g.players) + in_pot == sum(p.buyins for p in g.players) * STARTING_CHIPS
+
+
+def check_kick():
+    # only the host, never themself
+    g, (a, b, c) = table(3)
+    for who, target in ((b, c), (a, a)):
+        try:
+            g.kick(who, target)
+            raise AssertionError('kick allowed')
+        except ValueError:
+            pass
+    # removed on their turn: they fold, the turn moves on, their stack is cashed out
+    p = g.players[g.to_act]
+    target = p if p is not a else g.players[g.next_seat(g.to_act, lambda q: q.active)]
+    g.kick(a, target)
+    assert target.kicked and target.folded and target.chips == 0 and target.buyout > 0
+    assert g.phase in STREETS and g.players[g.to_act] is not target
+    try:
+        g.rebuy(target)
+        raise AssertionError('kicked player bought in')
+    except ValueError:
+        pass
+    while g.phase in STREETS:
+        q = g.players[g.to_act]
+        g.act(q, 'check' if g.legal(q)['canCheck'] else 'call')
+    finish_by_declaring(g)
+    assert g.phase == 'handover' and conserved(g)
+    assert g.start_hand() and not target.in_hand          # not dealt again
+
+    # removing the only other player ends the hand
+    g, (a, b) = table(2)
+    g.kick(a, b)
+    assert g.phase == 'handover' and g.result['uncontested'] and conserved(g)
+
+    # small blind removed while choosing the game: Texas is played without them
+    g, ps = table(3, variant=None)
+    host = ps[0]
+    sb = g.players[g.sb]
+    if sb is host:
+        g.host_id = ps[1].id
+        host = ps[1]
+    g.kick(host, sb)
+    assert g.variant == 'texas' and sb.folded and g.phase in STREETS and conserved(g)
+
+    # removed at showdown while everyone else has confirmed: showdown happens
+    g, (a, b, c) = table(3)
+    while g.phase in STREETS:
+        q = g.players[g.to_act]
+        g.act(q, 'check' if g.legal(q)['canCheck'] else 'call')
+    g.declare(a, [0, 1]); g.declare(b, [0, 1])
+    g.kick(a, c)
+    assert g.phase == 'handover' and conserved(g)
+    assert c.id not in g.result['hands'] or g.result['hands'][c.id].get('mucked', True)
+    print('host can remove players ok')
+
+
 def check_allin_gets_showdown_pick():
     g = Game('TALL')
     a, b = g.add_player('A'), g.add_player('B')
@@ -281,5 +355,6 @@ if __name__ == '__main__':
     check_players_choose_their_cards()
     check_no_confirm_mucks()
     check_cash_out()
+    check_kick()
     for seed in range(1, 6):
         play_random_hands(seed=seed)

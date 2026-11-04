@@ -271,6 +271,12 @@ input:focus { border-color: var(--accent); }
 .rpage .ex-list { background: var(--bg); border-radius: 6px; padding: 8px 10px 8px 28px; margin: 0; }
 .rpage .ranks li::marker { color: var(--gold); font-weight: 700; }
 .rules-link { color: var(--accent); }
+.seat.kickable { cursor: pointer; }
+.kick-x { position: absolute; top: -8px; left: -8px; width: 20px; height: 20px; border-radius: 50%; background: #5a1f1f;
+  border: 1px solid #7a2a2a; color: #ffd0d0; font-size: 11px; display: grid; place-items: center; line-height: 1; }
+.seat .plate { position: relative; }
+.removed { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #ff8a8a;
+  border: 1px solid #7a2a2a; border-radius: 4px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #5a1f1f; border: 1px solid #7a2a2a;
   padding: 10px 18px; border-radius: 10px; z-index: 60; }
 
