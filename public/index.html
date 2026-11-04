@@ -3,137 +3,174 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f1512">
+  <meta name="theme-color" content="#1b1d20">
   <title>Poker Night</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Roboto+Slab:wght@700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <!-- Home -->
   <section id="home" class="screen">
     <div class="home-card">
-      <h1>Poker Night</h1>
+      <div class="brand big">POKER <span>NIGHT</span></div>
       <p class="sub">Texas · 999 · 1 3 5 · Theenpathi · Omaha</p>
-      <label>Your name <input id="name" maxlength="16" placeholder="e.g. Shri" autocomplete="off"></label>
-      <button id="hostBtn" class="btn primary wide">Host a new game</button>
-      <div class="or"><span>or join with a code</span></div>
+      <label class="field">Your nickname <input id="name" maxlength="16" placeholder="e.g. Shri" autocomplete="off"></label>
+      <button id="hostBtn" class="btn green wide">Start a new game</button>
+      <div class="or"><span>or join a friend's game</span></div>
       <div class="row">
-        <input id="joinCode" maxlength="5" placeholder="CODE" autocomplete="off">
+        <input id="joinCode" maxlength="5" placeholder="GAME CODE" autocomplete="off">
         <button id="joinBtn" class="btn">Join</button>
       </div>
-      <p class="hint">Everyone starts with 200 chips. Blinds 1 / 2. <a href="#" class="rules-link">How to play</a></p>
+      <p class="hint">You join as a watcher, then pick an empty seat to play. <a href="#" class="rules-link">Rules</a></p>
       <p id="homeErr" class="err"></p>
     </div>
   </section>
 
   <!-- Game -->
   <section id="game" class="screen hidden">
-    <header class="topbar">
-      <div class="code-box" id="codeBox" title="Copy invite link">
-        <span class="label">Game code</span> <b id="codeText"></b> <span class="copy" id="copyMsg">copy link</span>
+    <div class="corner tl">
+      <div class="brand">POKER <span>NIGHT</span></div>
+      <button id="optionsBtn" class="options-btn" aria-label="Options">
+        <span class="burger"><i></i><i></i><i></i></span><span class="lbl">OPTIONS</span>
+        <span id="optionsDot" class="dot hidden"></span>
+      </button>
+    </div>
+
+    <div class="corner tr">
+      <div class="owner">HOST: <span id="ownerName"></span></div>
+      <div class="gametype" id="gameType"></div>
+      <div class="tr-row">
+        <button id="codeChip" class="chip-btn" title="Copy invite link">CODE <b id="codeText"></b> <span id="copyMsg">⧉</span></button>
+        <button id="chatToggle" class="icon-btn mobile-only" aria-label="Chat">💬<span id="chatDot" class="dot hidden"></span></button>
+        <button id="soundBtn" class="icon-btn" aria-label="Sound">🔊</button>
       </div>
-      <div id="handInfo" class="hand-info"></div>
-      <button id="menuBtn" class="btn small ghost menu-btn" aria-label="Menu" aria-expanded="false">☰ Menu</button>
-      <div class="top-actions" id="topActions">
-        <button id="ledgerBtn" class="btn small ghost">Ledger</button>
-        <button id="rulesBtn" class="btn small ghost">Rules</button>
-        <button id="sitBtn" class="btn small ghost">Sit out</button>
-        <button id="rebuyBtn" class="btn small">Buy in +200</button>
-        <button id="cashoutBtn" class="btn small ghost">Cash out</button>
-      </div>
-    </header>
+    </div>
 
-    <main class="layout">
-      <div class="table-area">
-        <div class="table" id="table">
-          <div class="felt">
-            <div class="center">
-              <div id="variantLabel" class="variant-label"></div>
-              <div id="board" class="board"></div>
-              <div id="pot" class="pot"></div>
-              <div id="lobbyBox" class="lobby-box hidden"></div>
-            </div>
-          </div>
-          <div id="seats"></div>
-        </div>
+    <div id="requests" class="requests hidden"></div>
 
-        <div id="result" class="result hidden"></div>
-
-        <div class="me-panel">
-          <div class="my-hand">
-            <div id="myCards" class="my-cards"></div>
-            <div id="splitInfo" class="split-info"></div>
+    <div class="table-zone" id="zone">
+      <div class="table">
+        <div class="felt">
+          <div class="felt-center">
+            <div id="pot" class="pot hidden"></div>
+            <div id="board" class="board"></div>
+            <div id="tableMsg" class="table-msg"></div>
+            <div id="winBanner" class="win-banner hidden"></div>
+            <div id="lobbyBox" class="lobby-box hidden"></div>
           </div>
-          <div id="actions" class="actions hidden">
-            <div class="action-btns">
-              <button id="foldBtn" class="btn danger">Fold</button>
-              <button id="checkBtn" class="btn">Check</button>
-              <button id="raiseBtn" class="btn primary">Raise</button>
-            </div>
-            <div id="raiseBox" class="raise-box">
-              <div class="presets">
-                <button data-p="min" class="btn tiny ghost">Min</button>
-                <button data-p="half" class="btn tiny ghost">½ Pot</button>
-                <button data-p="pot" class="btn tiny ghost">Pot</button>
-                <button data-p="all" class="btn tiny ghost">All-in</button>
-              </div>
-              <div class="slider-row">
-                <input id="raiseSlider" type="range" aria-label="Bet amount slider">
-                <label class="amount">Amount
-                  <input id="raiseInput" type="text" inputmode="numeric" autocomplete="off" aria-label="Type bet amount">
-                </label>
-              </div>
-              <div id="raiseHint" class="raise-hint"></div>
-            </div>
-          </div>
-          <div id="waitMsg" class="wait-msg"></div>
+          <div id="watermark" class="watermark"></div>
         </div>
       </div>
+      <div id="seats"></div>
+    </div>
 
-      <aside class="side">
-        <h3>Scoreboard</h3>
-        <table id="score" class="score"></table>
-        <h3>Table log</h3>
-        <div id="log" class="log"></div>
-        <h3>Chat</h3>
+    <div class="corner bl">
+      <button id="logBtn" class="box-btn">LOG / LEDGER</button>
+      <div class="chat-box" id="chatBox">
+        <button class="sheet-close mobile-only" id="chatClose" aria-label="Close chat">✕</button>
         <div id="chat" class="chat"></div>
         <form id="chatForm" class="chat-form">
-          <input id="chatInput" maxlength="200" placeholder="Say something…" autocomplete="off">
-          <button class="btn small">Send</button>
+          <button type="button" id="emoteBtn" class="emote-btn" aria-label="Reactions">😀</button>
+          <input id="chatInput" maxlength="200" placeholder="Type a message…" autocomplete="off">
+          <button class="send-btn" aria-label="Send">➤</button>
         </form>
-      </aside>
-    </main>
+        <div id="emotes" class="emotes hidden"></div>
+      </div>
+    </div>
+
+    <div class="dock" id="dock">
+      <div id="myHand" class="my-hand"></div>
+      <div id="pickInfo" class="pick-info"></div>
+      <div id="raisePanel" class="raise-panel hidden">
+        <div class="presets">
+          <button data-p="min">MIN</button><button data-p="half">½ POT</button>
+          <button data-p="threeq">¾ POT</button><button data-p="pot">POT</button><button data-p="all">ALL IN</button>
+        </div>
+        <div class="slider-row">
+          <button class="step" data-step="-1" aria-label="Less">−</button>
+          <input id="raiseSlider" type="range" aria-label="Bet amount slider">
+          <button class="step" data-step="1" aria-label="More">+</button>
+          <input id="raiseInput" type="text" inputmode="numeric" autocomplete="off" aria-label="Type bet amount">
+        </div>
+        <div id="raiseHint" class="raise-hint"></div>
+        <div class="raise-go">
+          <button id="raiseBack" class="act-btn ghost">BACK</button>
+          <button id="raiseConfirm" class="act-btn amber">BET</button>
+        </div>
+      </div>
+      <div id="actions" class="actions hidden">
+        <button id="foldBtn" class="act-btn red">FOLD</button>
+        <button id="checkBtn" class="act-btn green">CHECK</button>
+        <button id="raiseBtn" class="act-btn amber">RAISE</button>
+      </div>
+      <div id="preActions" class="pre-actions hidden">
+        <button data-pre="checkfold" class="pre">CHECK / FOLD</button>
+        <button data-pre="check" class="pre">CHECK</button>
+        <button data-pre="call" class="pre">CALL ANY</button>
+      </div>
+      <div id="dockMsg" class="dock-msg"></div>
+    </div>
   </section>
+
+  <!-- Options drawer -->
+  <div id="drawer" class="drawer hidden">
+    <div class="drawer-panel">
+      <div class="drawer-head"><h2>Options</h2><button class="x-btn" id="drawerClose" aria-label="Close">✕</button></div>
+      <div id="drawerBody" class="drawer-body"></div>
+    </div>
+  </div>
 
   <!-- Variant chooser (small blind) -->
   <div id="chooser" class="modal hidden">
     <div class="modal-card">
       <h2>You're the small blind — pick the game</h2>
-      <p class="muted">Not sure? <a href="#" class="rules-link">Read the full rules</a></p>
+      <p class="muted">Not sure? <a href="#" class="rules-link">Read the rules</a> <span id="chooseCount" class="count"></span></p>
       <div id="variantList" class="variant-list"></div>
     </div>
   </div>
 
-  <!-- Ledger -->
+  <!-- Showdown details -->
+  <div id="sdModal" class="modal hidden">
+    <div class="modal-card sd-card">
+      <div class="modal-head"><h2>Showdown</h2><button class="x-btn" data-close="sdModal" aria-label="Close">✕</button></div>
+      <div id="sdBody"></div>
+    </div>
+  </div>
+
+  <!-- Log / Ledger -->
   <div id="ledger" class="modal hidden">
     <div class="modal-card ledger-card">
-      <div class="ledger-head">
-        <h2>Session Ledger</h2>
-        <button class="btn small ghost" id="ledgerClose" aria-label="Close">✕</button>
+      <div class="modal-head">
+        <div class="tabs" id="logTabs">
+          <button class="tab active" data-tab="ledger">LEDGER</button>
+          <button class="tab" data-tab="log">LOG</button>
+        </div>
+        <button class="x-btn" data-close="ledger" aria-label="Close">✕</button>
       </div>
-      <div class="ledger-scroll">
-        <table class="ledger-table">
-          <thead><tr>
-            <th class="l">Player</th><th class="ldet"></th>
-            <th data-sort="buyin">Buy-in</th><th data-sort="buyout">Buy-out</th>
-            <th data-sort="stack">Stack</th><th data-sort="net">Net</th>
-          </tr></thead>
-          <tbody id="ledgerBody"></tbody>
-          <tfoot id="ledgerFoot"></tfoot>
-        </table>
+      <div class="tabpage active" data-page="ledger">
+        <div class="ledger-scroll">
+          <table class="ledger-table">
+            <thead><tr>
+              <th class="l">Player</th><th class="ldet"></th>
+              <th data-sort="buyin">Buy-in</th><th data-sort="buyout">Buy-out</th>
+              <th data-sort="stack">Stack</th><th data-sort="net">Net</th>
+            </tr></thead>
+            <tbody id="ledgerBody"></tbody>
+            <tfoot id="ledgerFoot"></tfoot>
+          </table>
+        </div>
+        <div class="ledger-actions">
+          <button class="btn green small" id="ledgerDownload">Download CSV</button>
+          <span class="muted">The ledger lasts while the game runs — download it before everyone leaves.</span>
+        </div>
       </div>
-      <div class="ledger-actions">
-        <button class="btn primary small" id="ledgerDownload">Download CSV</button>
-        <span class="muted">The ledger lasts while the game is running — download it before everyone leaves.</span>
+      <div class="tabpage" data-page="log">
+        <div id="fullLog" class="full-log"></div>
+        <div class="ledger-actions">
+          <button class="btn small" id="logDownload">Download log</button>
+        </div>
       </div>
     </div>
   </div>
@@ -141,95 +178,118 @@
   <!-- Rules -->
   <div id="rules" class="modal hidden">
     <div class="modal-card rules-card">
-      <div class="ledger-head">
+      <div class="modal-head">
         <h2>Rules</h2>
-        <button class="btn small ghost" id="rulesClose" aria-label="Close">✕</button>
+        <button class="x-btn" data-close="rules" aria-label="Close">✕</button>
       </div>
       <div class="rules-tabs" role="tablist">
         <button class="rtab active" data-tab="general">General</button>
+        <button class="rtab" data-tab="choose">Choosing cards</button>
         <button class="rtab" data-tab="texas">Texas</button>
         <button class="rtab" data-tab="999">999</button>
         <button class="rtab" data-tab="135">1 3 5</button>
         <button class="rtab" data-tab="theenpathi">Theenpathi</button>
         <button class="rtab" data-tab="omaha">Omaha</button>
         <button class="rtab" data-tab="rankings">Hand rankings</button>
+        <button class="rtab" data-tab="options">Options</button>
       </div>
 
       <div class="rules-body">
         <section class="rpage active" data-page="general">
-          <h3>The table</h3>
+          <h3>Joining and seats</h3>
           <ul>
-            <li>Up to 8 players. Everyone starts with <b>200 chips</b>. Blinds are <b>1</b> (small) and <b>2</b> (big).</li>
-            <li>The dealer button moves one seat to the left every hand. The player left of the dealer posts the small blind, the next player the big blind. With only 2 players, the dealer posts the small blind.</li>
-            <li><b>The small blind chooses the game</b> for each hand — Texas, 999, 1 3 5, Theenpathi or Omaha — before any cards are dealt. Blinds are then posted and cards dealt.</li>
+            <li>The host starts a game and shares the <b>game code</b> or invite link (tap CODE at the top right). Friends open the link, type a nickname and join.</li>
+            <li>Everyone joins as a <b>watcher</b>. Tap an empty <b>SIT</b> seat to play — the host approves the request (the host can switch approval off). Up to <b>8 seats</b>.</li>
+            <li>Sitting down buys you in for the table's buy-in (<b>200 chips</b> by default). You're dealt in from the next hand.</li>
+            <li>The host presses <b>Start game</b> once 2 or more players are seated. After that hands deal automatically.</li>
+          </ul>
+          <h3>Each hand</h3>
+          <ul>
+            <li>The dealer button (<b>D</b>) moves one seat clockwise every hand. The next player posts the small blind (<b>1</b> by default), the next the big blind (<b>2</b>). With 2 players the dealer posts the small blind. If the host sets an <b>ante</b>, everyone posts it too.</li>
+            <li><b>The small blind chooses the game</b> for each hand — Texas, 999, 1 3 5, Theenpathi or Omaha — before cards are dealt. If they don't pick in time, Texas is played.</li>
           </ul>
           <h3>Betting (no-limit)</h3>
           <ul>
-            <li>Four betting rounds: <b>pre-flop</b> (after hole cards), <b>flop</b> (3 community cards), <b>turn</b> (4th card) and <b>river</b> (5th card).</li>
-            <li>Pre-flop, the player left of the big blind acts first (with 2 players, the dealer/small blind). After the flop, the first player still in left of the dealer acts first.</li>
-            <li>On your turn: <b>Fold</b>, <b>Check</b> (if nothing to call), <b>Call</b>, or <b>Bet / Raise</b> to any amount up to your whole stack. Type the amount, use the slider or the Min / ½ Pot / Pot / All-in buttons.</li>
-            <li>The smallest bet is 2. A raise must be at least as big as the previous bet or raise in that round. You can always go all-in for less.</li>
-            <li>If you go all-in, you can only win what you matched from each other player; the rest goes into a <b>side pot</b> for the players who keep betting.</li>
-            <li>If everyone else folds, the last player wins the pot without showing.</li>
+            <li>Four betting rounds: <b>pre-flop</b>, <b>flop</b> (3 community cards), <b>turn</b> (4th) and <b>river</b> (5th).</li>
+            <li>Pre-flop, the player left of the big blind acts first. After the flop, the first player still in left of the dealer acts first.</li>
+            <li>On your turn: <b>Fold</b>, <b>Check</b>, <b>Call</b> or <b>Bet / Raise</b> up to your whole stack. Tap RAISE, then type the amount, slide, use − / + or the MIN / ½ POT / ¾ POT / POT / ALL IN buttons.</li>
+            <li>A raise must be at least as big as the previous bet or raise in that round. You can always go all-in for less.</li>
+            <li>When it isn't your turn you can pre-select <b>CHECK / FOLD</b>, <b>CHECK</b> or <b>CALL ANY</b> — it plays as soon as your turn comes.</li>
+            <li>There is a <b>turn timer</b> (30 seconds by default, shown as a bar on your seat). If it runs out you check if you can, otherwise you fold.</li>
+            <li>All-in players can only win what they matched from each player; extra bets form a <b>side pot</b>.</li>
+            <li>If everyone else folds, the last player wins without showing (they can tap <b>Show cards</b> if they want).</li>
           </ul>
-          <h3>Showdown — you choose your cards</h3>
+          <h3>Showdown</h3>
           <ul>
-            <li>When betting ends with 2 or more players left, all 5 community cards are dealt (even after an early all-in) and every player still in <b>picks which of their own hole cards they are playing</b>. The game completes your 5-card hand with the best community cards and shows a preview.</li>
-            <li>How many hole cards you may use depends on the game (see each tab). In 999 and Theenpathi you also confirm your 3 side-game cards.</li>
-            <li>The game never picks for you: <b>your choice counts even if a better one existed</b>.</li>
-            <li>You have <b>60 seconds</b> to press <b>Confirm</b>. If you don't, your hand is <b>mucked</b> and can't win. (If nobody in a pot confirms, everyone's best hand is used so the pot isn't stuck.)</li>
-            <li>Hands are revealed only when everyone has confirmed. The showdown panel shows each player's hole cards used (green), side-game cards (blue), the community cards that completed the hand, and what they won.</li>
+            <li>With 2+ players left after the river, everyone still in <b>chooses which of their own hole cards they are playing</b> — see the <b>Choosing cards</b> tab. The game completes your hand from the community cards and shows a preview.</li>
+            <li>The game never picks for you: <b>your choice counts even if a better one existed</b>. Press <b>Confirm my cards</b> within <b>60 seconds</b> or your hand is <b>mucked</b>. (If nobody in a pot confirms, everyone's best hand is used.)</li>
+            <li>Hands are revealed once everyone has confirmed. Cards used are outlined <b style="color:#3ddc84">green</b>, side-game cards <b style="color:#5aa9ff">blue</b>. Tap <b>Details</b> on the table for the full breakdown.</li>
+            <li>Equal hands split the pot. Odd chips go to the tied winners closest to the dealer's left.</li>
           </ul>
-          <h3>Ties and odd chips</h3>
+          <h3>Buy-ins, leaving and the ledger</h3>
           <ul>
-            <li>Equal hands split the pot (suits never break a tie). If chips don't divide evenly, the extra chips go to the tied winners closest to the dealer's left.</li>
+            <li><b>Buy in</b> (Options) adds another stack <b>whenever you like, except in the middle of a hand you were dealt into</b> — wait until the hand ends. If you're out of chips or away, you can buy in any time.</li>
+            <li><b>Leave seat</b> cashes out your stack (your buy-out) and makes you a watcher again; sit down again to buy back in. If you're still in a hand, you leave when it ends.</li>
+            <li><b>Away</b> keeps your seat but skips you until you press I'm back.</li>
+            <li>The <b>Ledger</b> shows each player's buy-ins, buy-outs, stack and net, with every buy-in and buy-out timed. Download it as a spreadsheet before you finish — it's lost if the server restarts.</li>
+            <li>If you lose connection, reopen the link or rejoin with the same nickname. While you're away you're checked or folded when your timer runs out.</li>
           </ul>
-          <h3>Chips, buy-ins and the ledger</h3>
+        </section>
+
+        <section class="rpage" data-page="choose">
+          <h3>What you must choose before the showdown</h3>
+          <p class="muted">Tap your own cards (they light up). You only ever pick from <b>your hole cards</b> — the game adds the community cards automatically.</p>
+          <table class="choose-table">
+            <tr><th>Game</th><th>Your cards</th><th>What you choose</th></tr>
+            <tr><td><b>Texas</b></td><td>2</td><td>At showdown, tap the hole cards you play: <b>2, 1 or 0</b> (0 = play the board).</td></tr>
+            <tr><td><b>999</b></td><td>5</td><td><b>Before the showdown, select the 3 cards for your 999 number</b> (you can change them until the showdown). At showdown: confirm them, then tap which of your <b>other 2</b> cards play Texas (2, 1 or 0).</td></tr>
+            <tr><td><b>1 3 5</b></td><td>5</td><td>At showdown, tap <b>exactly 1, 3 or 5</b> of your cards.</td></tr>
+            <tr><td><b>Theenpathi</b></td><td>5</td><td><b>Before the showdown, select the 3 cards for your Theenpathi hand</b> (the name, e.g. "Pair of Kings", shows as you pick; change it until the showdown). At showdown: confirm them, then tap which of your <b>other 2</b> cards play Texas (2, 1 or 0).</td></tr>
+            <tr><td><b>Omaha</b></td><td>4</td><td>At showdown, tap <b>exactly 2</b> of your 4 cards — the game adds exactly 3 community cards.</td></tr>
+          </table>
           <ul>
-            <li><b>Buy in</b> adds 200 chips at any time. If you're in a hand, they're added when it ends. Every buy-in is counted.</li>
-            <li><b>Cash out</b> takes your stack off the table (your buy-out) and sits you out; buy in again to come back.</li>
-            <li><b>Ledger</b> shows each player's buy-ins, buy-outs, stack and net result, and downloads as a spreadsheet. It resets if the server restarts, so download it at the end of the night.</li>
-            <li>If you lose connection, just reopen the link or rejoin with the same name. While you're away, you're checked or folded after 20 seconds on your turn.</li>
-            <li>The <b>host</b> can remove a player by tapping their seat. A removed player folds any hand they're in, their remaining chips are cashed out in the ledger, and they can't rejoin that game.</li>
+            <li>Your picks are private until everyone confirms.</li>
+            <li>The <b>Confirm my cards</b> button only works with a legal choice. Once confirmed, your choice is final.</li>
+            <li>If you don't confirm before the showdown timer ends, your hand is mucked (it can't win).</li>
           </ul>
         </section>
 
         <section class="rpage" data-page="texas">
           <h3>Texas Hold'em</h3>
+          <div class="callout"><b>You choose:</b> at showdown, tap the hole cards you are playing — 2, 1 or 0.</div>
           <ul>
             <li><b>Dealt:</b> 2 hole cards each, plus 5 community cards over the flop, turn and river.</li>
-            <li><b>Your hand:</b> the best 5 cards from your hole cards and the board. You may use <b>2, 1 or 0</b> of your hole cards (0 = "playing the board").</li>
-            <li><b>At showdown:</b> tap the hole cards you are using; the game fills in the best board cards.</li>
+            <li><b>Your hand:</b> the best 5 cards from your hole cards and the board, using <b>2, 1 or 0</b> of your hole cards (0 = "playing the board").</li>
             <li><b>Winner:</b> the best poker hand takes the whole pot (see Hand rankings).</li>
           </ul>
-          <p class="ex"><b>Example:</b> you hold A♥ 9♥ and the board is K♥ 7♥ 3♥ 8♣ 4♠. Using both cards gives a Flush, Ace high (A♥ 9♥ K♥ 7♥ 3♥). Using only the 9♥ gives no flush — and that is what would count if you chose it.</p>
+          <p class="ex"><b>Example:</b> you hold A♥ 9♥ and the board is K♥ 7♥ 3♥ 8♣ 4♠. Tap both cards → Flush, Ace high. Tap only the 9♥ → no flush, and that's what counts.</p>
         </section>
 
         <section class="rpage" data-page="999">
           <h3>999</h3>
+          <div class="callout"><b>You choose:</b> before the showdown, select the <b>3 cards</b> for your 999 number. At showdown confirm them, then tap which of your other 2 cards play Texas (2, 1 or 0).</div>
           <ul>
-            <li><b>Dealt:</b> 5 hole cards each, plus the usual 5 community cards.</li>
+            <li><b>Dealt:</b> 5 hole cards each, plus 5 community cards.</li>
             <li><b>Split your cards:</b> <b>3 cards</b> make your 999 number and the <b>other 2</b> play Texas.</li>
-            <li><b>The 999 number:</b> cards 2–9 count as their value; <b>10, J, Q, K and A count as 0</b>. Arrange your 3 digits to make the biggest number — the closer to 999, the better. The highest number wins.</li>
-            <li><b>The Texas part:</b> your other 2 cards play Texas with the board — you may use 2, 1 or 0 of them.</li>
-            <li><b>Choosing:</b> tap your 3 cards for 999 any time during the hand — it's private and you can change it. At showdown it becomes final: Step 1 confirms your 999 cards, Step 2 picks which of the other 2 you use for Texas.</li>
-            <li><b>Pot split:</b> <b>half</b> the pot goes to the best Texas hand and <b>half</b> to the highest 999 number. One player can win both halves. If 2 players tie for the best 999 number they share that half (a quarter of the pot each), and the same for 3 or more. Ties in the Texas half split the same way. With an odd pot, the extra chip goes to the Texas half.</li>
+            <li><b>The 999 number:</b> cards 2–9 count as their value; <b>10, J, Q, K and A count as 0</b>. Your 3 digits are arranged into the biggest number — the closer to 999 the better; the highest number wins.</li>
+            <li><b>Choosing:</b> tap your 3 cards any time during the hand — the number shows as you pick, and you can change it until the showdown.</li>
+            <li><b>Pot split:</b> <b>half</b> to the best Texas hand, <b>half</b> to the highest 999 number. One player can win both halves. Two players tied on 999 share that half (a quarter of the pot each), and so on. With an odd pot the extra chip goes to the Texas half.</li>
           </ul>
-          <p class="ex"><b>Examples:</b> 9 8 7 → <b>987</b>. 9 9 A → <b>990</b> (A is 0). K 5 3 → <b>530</b>. Q J 10 → <b>000</b>.</p>
-          <p class="ex"><b>Split example:</b> pot of 100. Ravi has the best Texas hand → wins 50. Shri and Vroon both have 998 → 25 each.</p>
+          <p class="ex"><b>Examples:</b> 9 8 7 → <b>987</b>. 9 9 A → <b>990</b>. K 5 3 → <b>530</b>. Q J 10 → <b>000</b>.</p>
+          <p class="ex"><b>Split example:</b> pot of 100. Ravi has the best Texas hand → 50. Shri and Vroon both have 998 → 25 each.</p>
         </section>
 
         <section class="rpage" data-page="135">
           <h3>1 3 5</h3>
+          <div class="callout"><b>You choose:</b> at showdown, tap <b>exactly 1, 3 or 5</b> of your hole cards.</div>
           <ul>
             <li><b>Dealt:</b> 5 hole cards each, plus 5 community cards.</li>
-            <li><b>Your hand:</b> a normal 5-card poker hand that uses <b>exactly 1, 3 or 5</b> of your hole cards — completed with 4, 2 or 0 community cards. Using 2 or 4 of your cards is <b>not allowed</b>.</li>
-            <li><b>At showdown:</b> tap 1, 3 or 5 of your cards; the game adds the best board cards. Confirm only works with a legal number of cards.</li>
+            <li><b>Your hand:</b> a normal 5-card hand using <b>exactly 1, 3 or 5</b> of your hole cards, completed with 4, 2 or 0 community cards. Using 2 or 4 is <b>not allowed</b>.</li>
             <li><b>Winner:</b> the best poker hand takes the whole pot.</li>
           </ul>
-          <p class="ex"><b>Example:</b> you hold Q♥ Q♦ 2♣ 3♣ 4♦ and the board is Q♠ 9♣ 9♦ 7♥ 8♠.</p>
+          <p class="ex"><b>Example:</b> you hold Q♥ Q♦ 2♣ 3♣ 4♦, board Q♠ 9♣ 9♦ 7♥ 8♠.</p>
           <ul class="ex-list">
-            <li>Full house Q Q Q 9 9 would use Q♥ Q♦ = <b>2</b> of your cards → <b>not allowed</b>.</li>
+            <li>Full house Q Q Q 9 9 would use 2 of your cards → <b>not allowed</b>.</li>
             <li>1 card: Q♥ + Q♠ 9♣ 9♦ 8♠ → Two Pair.</li>
             <li>3 cards: Q♥ Q♦ 4♦ + Q♠ 9♣ → <b>Three Queens</b> — the best legal hand.</li>
             <li>5 cards: Q♥ Q♦ 2♣ 3♣ 4♦ → Pair of Queens.</li>
@@ -238,55 +298,70 @@
 
         <section class="rpage" data-page="theenpathi">
           <h3>Theenpathi</h3>
+          <div class="callout"><b>You choose:</b> before the showdown, select the <b>3 cards</b> you want for your Theenpathi hand. At showdown confirm them, then tap which of your other 2 cards play Texas (2, 1 or 0).</div>
           <ul>
             <li><b>Dealt:</b> 5 hole cards each, plus 5 community cards.</li>
-            <li><b>Split your cards:</b> <b>3 cards</b> make your Theenpathi hand and the <b>other 2</b> play Texas. The 3 Theenpathi cards have nothing to do with the board.</li>
-            <li><b>Choosing:</b> tap your 3 Theenpathi cards before the showdown — the hand name shows as you pick (e.g. "Pair of Kings"). It's private and you can change it until the showdown, where Step 1 confirms it and Step 2 picks which of your other 2 cards you use for Texas (2, 1 or 0).</li>
-            <li><b>Pot split:</b> half to the best Texas hand, half to the best Theenpathi hand; ties share their half (just like 999).</li>
+            <li><b>Split your cards:</b> <b>3 cards</b> make your Theenpathi hand (the board isn't used for it) and the <b>other 2</b> play Texas.</li>
+            <li><b>Choosing:</b> tap 3 cards during the hand — the hand name shows as you pick (e.g. "Pair of Kings"). You can change it until the showdown.</li>
+            <li><b>Pot split:</b> half to the best Texas hand, half to the best Theenpathi hand; ties share their half, just like 999.</li>
           </ul>
           <h3>Theenpathi hands, best to worst</h3>
           <ol class="ranks">
-            <li><b>Trail</b> — three of a kind, e.g. 7 7 7. Higher rank wins (A A A is the best hand).</li>
+            <li><b>Trail</b> — three of a kind, e.g. 7 7 7 (A A A is the best).</li>
             <li><b>Straight flush</b> — 3 in a row, same suit, e.g. 4♠ 5♠ 6♠.</li>
-            <li><b>Straight</b> — 3 in a row, mixed suits, e.g. 9 10 J.</li>
+            <li><b>Straight</b> — 3 in a row, e.g. 9 10 J.</li>
             <li><b>Flush</b> — 3 of the same suit, e.g. K♥ 9♥ 2♥.</li>
             <li><b>Pair</b> — e.g. Q Q 5.</li>
             <li><b>High card</b> — anything else.</li>
           </ol>
           <ul>
-            <li>Straights: <b>A-K-Q is the highest</b>, then K-Q-J … down to 4-3-2, and <b>A-2-3 is the lowest</b>. A higher top card wins.</li>
-            <li>Same type of hand: flush and high card compare the highest card, then the next, then the last. Pairs compare the pair, then the odd card.</li>
-            <li>Exactly equal hands share (suits don't matter).</li>
+            <li>Straights: <b>A-K-Q is the highest</b>, then K-Q-J … 4-3-2, and <b>A-2-3 is the lowest</b>.</li>
+            <li>Same type: flush and high card compare highest card first, then the next. Pairs compare the pair, then the odd card. Exactly equal hands share.</li>
           </ul>
         </section>
 
         <section class="rpage" data-page="omaha">
           <h3>Omaha</h3>
+          <div class="callout"><b>You choose:</b> at showdown, tap <b>exactly 2</b> of your 4 hole cards.</div>
           <ul>
             <li><b>Dealt:</b> 4 hole cards each, plus 5 community cards.</li>
-            <li><b>Your hand:</b> <b>exactly 2</b> of your 4 hole cards plus <b>exactly 3</b> community cards — no more, no less.</li>
-            <li><b>At showdown:</b> tap exactly 2 cards; the game adds the best 3 board cards.</li>
+            <li><b>Your hand:</b> <b>exactly 2</b> of your hole cards plus <b>exactly 3</b> community cards.</li>
             <li><b>Winner:</b> the best poker hand takes the whole pot.</li>
           </ul>
-          <p class="ex"><b>Watch out:</b> holding A♥ K♥ Q♥ J♥ with only one heart on the board is <b>not</b> a flush — you can use only 2 of your hearts, so you'd need 3 hearts on the board.</p>
+          <p class="ex"><b>Watch out:</b> A♥ K♥ Q♥ J♥ with one heart on the board is <b>not</b> a flush — only 2 of your hearts count, so the board needs 3 hearts.</p>
         </section>
 
         <section class="rpage" data-page="rankings">
           <h3>Poker hands, best to worst</h3>
-          <p class="muted">Used for Texas, 1 3 5, Omaha and the Texas half of 999 / Theenpathi. Aces are high, but A-2-3-4-5 also counts as the lowest straight.</p>
+          <p class="muted">For Texas, 1 3 5, Omaha and the Texas half of 999 / Theenpathi. Aces are high; A-2-3-4-5 is the lowest straight.</p>
           <ol class="ranks">
-            <li><b>Straight flush</b> — 5 in a row, same suit (A K Q J 10 of one suit is a Royal Flush).</li>
-            <li><b>Four of a kind</b> — e.g. 9 9 9 9 + any.</li>
-            <li><b>Full house</b> — three of a kind + a pair, e.g. K K K 4 4.</li>
+            <li><b>Straight flush</b> — 5 in a row, same suit (A K Q J 10 = Royal Flush).</li>
+            <li><b>Four of a kind</b> — e.g. 9 9 9 9.</li>
+            <li><b>Full house</b> — three of a kind + a pair.</li>
             <li><b>Flush</b> — 5 of the same suit.</li>
-            <li><b>Straight</b> — 5 in a row, e.g. 6 7 8 9 10.</li>
-            <li><b>Three of a kind</b> — e.g. 7 7 7 + two others.</li>
-            <li><b>Two pair</b> — e.g. J J 4 4 + one.</li>
-            <li><b>Pair</b> — e.g. A A + three others.</li>
-            <li><b>High card</b> — none of the above; highest card wins.</li>
+            <li><b>Straight</b> — 5 in a row.</li>
+            <li><b>Three of a kind</b></li>
+            <li><b>Two pair</b></li>
+            <li><b>Pair</b></li>
+            <li><b>High card</b></li>
           </ol>
-          <p class="muted">Same type of hand: the higher cards win (for two pair, the top pair first; for a full house, the three of a kind first). Leftover cards ("kickers") break ties. Suits never matter.</p>
-          <p class="muted">Theenpathi's 3-card ranking is on the Theenpathi tab.</p>
+          <p class="muted">Same type: higher cards win, then kickers. Suits never matter. Theenpathi's 3-card ranking is on its own tab.</p>
+        </section>
+
+        <section class="rpage" data-page="options">
+          <h3>Options menu (top left)</h3>
+          <ul>
+            <li><b>Buy in</b>, <b>Away / I'm back</b>, <b>Leave seat</b> and <b>Show cards</b> (after a hand).</li>
+            <li><b>Preferences</b> (just for you): sounds, four-colour deck (♦ blue, ♣ green), amounts in big blinds.</li>
+            <li><b>Log / Ledger</b> (bottom left): every action of every hand, and the money ledger.</li>
+            <li><b>Chat</b> and <b>reactions</b> (😀) — reactions pop up over your seat.</li>
+          </ul>
+          <h3>Host controls</h3>
+          <ul>
+            <li><b>Start</b>, <b>Pause / Resume</b> (pausing stops all timers and actions).</li>
+            <li><b>Game settings</b>: small blind, big blind, ante, buy-in amount, turn time, showdown time and seat approval. Changes made during a hand apply from the next hand.</li>
+            <li><b>Players</b>: accept or decline seat requests, make someone else host, or remove a player. A removed player folds, their chips are cashed out in the ledger, and they can't rejoin under that name.</li>
+          </ul>
         </section>
       </div>
     </div>

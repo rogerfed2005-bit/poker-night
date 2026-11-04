@@ -2,7 +2,9 @@
 import random
 
 import evaluator as ev
-from game import Game, VARIANTS, STREETS, STARTING_CHIPS
+import time
+
+from game import Game, VARIANTS, STREETS, STARTING_CHIPS, ACTIVE
 
 
 def check_evaluators():
@@ -56,11 +58,20 @@ def play_random_hands(n_hands=3000, seed=1):
     players = [g.add_player(f'P{i}') for i in range(random.randint(2, 8))]
     total = STARTING_CHIPS * len(players)
     variants = list(VARIANTS)
-    for _ in range(n_hands):
+    for hand in range(n_hands):
         for p in players:
-            if p.chips == 0 and not p.kicked:
+            if p.kicked:
+                continue
+            if p.seat is None:
+                g.request_seat(p, g.free_seats()[0])
+                if p.seat_request is not None:
+                    g.answer_request(g.find(g.host_id), p, True)
+                total += STARTING_CHIPS
+            elif p.chips == 0:
                 g.rebuy(p)
                 total += STARTING_CHIPS
+        if hand % 50 == 25:                     # the host changes blinds and antes between hands
+            g.update_settings(g.find(g.host_id), {'sb': random.choice([1, 2, 5]), 'bb': 10, 'ante': random.choice([0, 1, 3])})
         assert g.start_hand()
         g.choose_variant(g.players[g.sb], random.choice(variants))
         if VARIANTS[g.variant]['split']:
@@ -73,16 +84,21 @@ def play_random_hands(n_hands=3000, seed=1):
             lg = g.legal(p)
             if lg is None:                      # hand ended by a removal inside this loop
                 break
-            if random.random() < 0.01:          # buy-ins at random moments, mid-hand too
-                g.rebuy(random.choice([q for q in players if not q.kicked]))
-                total += STARTING_CHIPS
+            if random.random() < 0.01:          # buying in mid-hand is refused for anyone dealt in
+                q = random.choice([q for q in players if not q.kicked and q.seat is not None])
+                try:
+                    g.rebuy(q)
+                    assert not q.in_hand, 'bought in mid-hand'
+                    total += STARTING_CHIPS
+                except ValueError:
+                    assert q.in_hand or q.pending_cashout
             seated = [q for q in players if not q.kicked]
             if random.random() < 0.003 and len(seated) > 3 and g.phase in STREETS:
                 g.kick(g.find(g.host_id), random.choice([q for q in seated if q.id != g.host_id]))
                 continue                        # whose turn it is may have changed
             if random.random() < 0.005:         # cash-outs too
                 q = random.choice([q for q in players if not q.kicked])
-                if not (q.cashed_out or q.pending_cashout):
+                if q.seat is not None and not q.pending_cashout:
                     g.cash_out(q)
             r = random.random()
             if r < 0.15 and not lg['canCheck']:
@@ -111,7 +127,6 @@ def play_random_hands(n_hands=3000, seed=1):
                     declare_random(g, p)
             g.finish_declare()
         assert g.phase == 'handover'
-        assert all(p.pending_buyins == 0 for p in players)
         assert all(not p.pending_cashout for p in players)
         assert sum(p.chips + p.buyout for p in players) == total, 'chips not conserved'
         assert all(sum(h['amount'] for h in p.history if h['kind'] == 'Buy-in') == p.buyins * STARTING_CHIPS for p in players)
@@ -156,23 +171,107 @@ def check_999_split():
     print('999 split + showdown pick ok')
 
 
-def check_buyin_any_time():
+def refused(fn, *args):
+    try:
+        fn(*args)
+    except ValueError:
+        return True
+    return False
+
+
+def check_buyin_between_hands():
     g = Game('TBUY')
-    a, b = g.add_player('A'), g.add_player('B')
-    g.rebuy(a)                                   # in the lobby: added now
+    a, b, c = g.add_player('A'), g.add_player('B'), g.add_player('C')
+    g.rebuy(a)                                   # before the game: added now
     assert (a.chips, a.buyins) == (2 * STARTING_CHIPS, 2)
+    c.chips = 0                                  # busted: not dealt in, so free to buy in mid-hand
     g.start_hand()
+    assert not c.in_hand
     g.choose_variant(g.players[g.sb], 'texas')
-    before = b.chips
-    g.rebuy(b)                                   # mid-hand: queued
-    assert (b.chips, b.buyins, b.pending_buyins) == (before, 1, 1)
+    assert refused(g.rebuy, b)                   # dealt in: not in the middle of a hand
+    p = g.players[g.to_act]
+    g.act(p, 'fold')
+    if g.phase in ACTIVE:
+        assert refused(g.rebuy, p)               # folded is still this hand
+    g.rebuy(c)
+    assert c.chips == STARTING_CHIPS
     while g.phase in STREETS:
-        p = g.players[g.to_act]
-        g.act(p, 'check' if g.legal(p)['canCheck'] else 'call')
+        q = g.players[g.to_act]
+        g.act(q, 'check' if g.legal(q)['canCheck'] else 'call')
     finish_by_declaring(g)
-    assert (b.buyins, b.pending_buyins) == (2, 0)
-    assert a.chips + b.chips == 4 * STARTING_CHIPS
-    print('buy-in any time ok')
+    g.rebuy(b)                                   # hand over: allowed
+    assert b.buyins == 2
+    w = Game('TW')                               # a watcher must sit first
+    w.add_player('H')
+    x = w.add_member('X')
+    assert refused(w.rebuy, x)
+    print('buy-in only between hands ok')
+
+
+def check_seats_and_settings():
+    g = Game('TS')
+    h = g.add_member('Host')
+    g.request_seat(h, 4)                         # the host sits straight away
+    assert h.seat == 4 and h.chips == STARTING_CHIPS
+    x, y = g.add_member('X'), g.add_member('Y')
+    g.request_seat(x, 2)                         # others wait for approval
+    assert x.seat is None and x.seat_request == 2
+    assert refused(g.request_seat, y, 2)         # seat already requested
+    assert refused(g.answer_request, x, x, True) # only the host approves
+    g.answer_request(h, x, True)
+    assert x.seat == 2 and x.chips == STARTING_CHIPS and x.buyins == 1
+    g.request_seat(y, 6)
+    g.answer_request(h, y, False)
+    assert y.seat is None and y.seat_request is None and y.buyins == 0
+    g.update_settings(h, {'approval': False})
+    g.request_seat(y, 6)
+    assert y.seat == 6
+    # blinds and stack: right away between hands, from the next hand mid-hand
+    g.update_settings(h, {'sb': 5, 'bb': 10, 'stack': 1000})
+    assert g.start_hand()
+    assert [p.seat for p in g.players] == [2, 4, 6] and g.dealer_seat == 2
+    g.choose_variant(g.players[g.sb], 'texas')
+    assert g.current_bet == 10
+    g.update_settings(h, {'bb': 20, 'ante': 2})
+    assert g.settings['bb'] == 10 and g.next_settings['bb'] == 20
+    assert refused(g.update_settings, h, {'sb': 50})        # bigger than the big blind
+    assert refused(g.update_settings, x, {'sb': 1})         # not the host
+    while g.phase in STREETS:
+        q = g.players[g.to_act]
+        g.act(q, 'check' if g.legal(q)['canCheck'] else 'call')
+    finish_by_declaring(g)
+    z = g.add_member('Z')                        # a new player sits between hands
+    g.request_seat(z, 3)
+    assert g.start_hand() and g.settings['bb'] == 20 and g.dealer_seat == 3
+    g.choose_variant(g.players[g.sb], 'texas')
+    assert g.pot_total() == 4 * 2 + 5 + 20        # antes + blinds
+    assert z.buyin_total == 1000
+    # pause: no actions, the clock stops
+    g.set_paused(h, True)
+    q = g.players[g.to_act]
+    assert g.legal(q) is None and refused(g.act, q, 'fold')
+    left = g.turn_deadline
+    time.sleep(0.05)
+    g.set_paused(h, False)
+    assert g.turn_deadline > left and g.legal(q)
+    # leaving mid-hand frees the seat after the hand; the seat can be taken again later
+    g.cash_out(q)
+    assert q.pending_cashout and q.seat is not None
+    while g.phase in STREETS:
+        r = g.players[g.to_act]
+        g.act(r, 'check' if g.legal(r)['canCheck'] else 'call')
+    finish_by_declaring(g)
+    assert q.seat is None and q.chips == 0 and q.buyout > 0
+    total_in = sum(p.buyin_total for p in g.members)
+    assert sum(p.chips + p.buyout for p in g.members) == total_in
+    # show cards after the hand
+    r = next(p for p in g.players if p.hole)
+    g.show_cards(r)
+    assert g.view(h.id)['seats'][g.members.index(r)]['cards'] == r.hole
+    # hand over hosting
+    g.make_host(h, x)
+    assert g.host_id == x.id and refused(g.set_paused, h, True)
+    print('seats, approval, settings, pause ok')
 
 
 def heads_up(variant, hole_a, hole_b, board):
@@ -246,7 +345,7 @@ def check_cash_out():
     g = Game('TCASH')
     a, b, c = g.add_player('A'), g.add_player('B'), g.add_player('C')
     g.cash_out(c)                                # between hands: immediate
-    assert (c.chips, c.buyout, c.cashed_out) == (0, STARTING_CHIPS, True)
+    assert (c.chips, c.buyout, c.seat) == (0, STARTING_CHIPS, None)
     g.start_hand()
     assert not c.in_hand                         # not dealt while cashed out
     g.choose_variant(g.players[g.sb], 'texas')
@@ -256,10 +355,12 @@ def check_cash_out():
         p = g.players[g.to_act]
         g.act(p, 'check' if g.legal(p)['canCheck'] else 'call')
     finish_by_declaring(g)
-    assert a.cashed_out and a.chips == 0 and a.buyout > 0
+    assert a.seat is None and a.chips == 0 and a.buyout > 0
     assert a.buyout + b.chips == 2 * STARTING_CHIPS
-    g.rebuy(c)                                   # buying back in returns you to the table
-    assert not c.cashed_out and not c.sitting_out and c.chips == STARTING_CHIPS and c.buyins == 2
+    assert refused(g.rebuy, c)                   # left the table: sit down again to buy in
+    g.request_seat(c, 5)
+    g.answer_request(a, c, True)
+    assert c.seat == 5 and not c.sitting_out and c.chips == STARTING_CHIPS and c.buyins == 2
     assert [h['kind'] for h in c.history] == ['Buy-in', 'Buy-out', 'Buy-in']
     v = {x['name']: x for x in g.view(c.id)['seats']}
     assert v['C']['net'] == 0 and v['C']['buyout'] == STARTING_CHIPS and v['C']['buyinTotal'] == 2 * STARTING_CHIPS
@@ -277,7 +378,7 @@ def table(n, variant='texas'):
 
 def conserved(g):
     in_pot = sum(p.total_bet for p in g.players) if g.phase != 'handover' else 0
-    return sum(p.chips + p.buyout for p in g.players) + in_pot == sum(p.buyins for p in g.players) * STARTING_CHIPS
+    return sum(p.chips + p.buyout for p in g.members) + in_pot == sum(p.buyin_total for p in g.members)
 
 
 def check_kick():
@@ -351,7 +452,8 @@ if __name__ == '__main__':
     check_evaluators()
     check_999_split()
     check_allin_gets_showdown_pick()
-    check_buyin_any_time()
+    check_buyin_between_hands()
+    check_seats_and_settings()
     check_players_choose_their_cards()
     check_no_confirm_mucks()
     check_cash_out()

@@ -10,8 +10,23 @@ py -m pip install -r requirements.txt
 py server.py
 ```
 
-Open http://localhost:8080, enter a name, **Host a new game**, and share the 5-letter code
-(or click the code to copy an invite link). Friends enter the code and **Join**. The host presses **Start**.
+Open http://localhost:8080, enter a nickname, **Start a new game**, and share the 5-letter code
+(tap CODE at the top right to copy an invite link). Everyone joins as a watcher and taps an empty
+**SIT** seat; the host accepts seat requests (approval can be switched off). The host presses **Start game**.
+
+## The table
+
+Dark room with a green oval table and 8 seats. Each seat plate shows the name, stack, hands won (green 🏆)
+and rebuys (red ↻); the player to act turns white with a timer bar. Action bubbles and bet chips sit in
+front of each seat, the pot is above the board, and the dealer button moves round the table.
+Bottom left: **Log / Ledger** and chat with reactions. Bottom right: FOLD / CHECK·CALL / RAISE
+(raise panel with MIN, ½ POT, ¾ POT, POT, ALL IN, slider, − / + and a typed amount), and pre-actions
+(CHECK / FOLD, CHECK, CALL ANY) while you wait. Keyboard: F fold, C check/call, R raise.
+
+**Options** (top left): buy in, away / I'm back, leave seat, show cards, log/ledger, rules, invite link,
+preferences (sounds, four-colour deck, amounts in big blinds). Host: start, pause / resume, game settings
+(blinds, ante, buy-in, turn time, showdown time, seat approval — mid-hand changes apply next hand),
+and a player list to accept/decline seats, make someone host or remove a player.
 
 ## Letting friends connect
 
@@ -44,11 +59,11 @@ the hand, the hand name and what they won.
 
 No-limit betting, side pots for all-ins, odd chips go to the first winner left of the dealer.
 Heads-up, the dealer posts the small blind. Max 8 players (5-card games need the deck).
-Anyone can buy in for another 200 at any time (during a hand the chips arrive when it ends);
-the scoreboard shows each player's buy-ins, chips and profit/loss. **Cash out** leaves the table with
-your stack (recorded as a buy-out; mid-hand it happens when the hand ends); buy in again to come back.
+Seated players can buy in for another stack at any time **except during a hand they were dealt into**.
+**Leave seat** cashes out your stack (recorded as a buy-out; mid-hand it happens when the hand ends)
+and makes you a watcher; sitting down again buys back in.
 The **Ledger** button shows buy-in, buy-out, stack and net per player (sortable, with a timed history
-under Details) and downloads it as a CSV. Disconnected players are auto-checked/folded after 20 s
+under Details) and downloads it as a CSV. When the turn timer (30 s default) runs out you check or fold; disconnected players likewise
 and can return by refreshing or rejoining with the same name.
 
 ## Tests

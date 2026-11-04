@@ -12,10 +12,10 @@ from pathlib import Path
 
 from aiohttp import web, WSMsgType
 
-from game import Game, STREETS
+from game import Game, STREETS, HOST_GRACE
 
-MAX_PLAYERS = 8          # 5-card variants need 5 cards each + board + burns from one deck
-NEXT_HAND_DELAY = 8      # seconds the showdown stays on screen
+MAX_MEMBERS = 30         # players + watchers in one game
+NEXT_HAND_DELAY = 9      # seconds the showdown stays on screen
 DISCONNECT_GRACE = 20    # seconds before a disconnected player is auto-checked/folded
 
 PUBLIC = Path(__file__).parent / 'public'
@@ -26,6 +26,7 @@ class Room:
         self.game = Game(code)
         self.sockets = {}     # player id -> websocket
         self.timer = None
+        self.host_timer = None
         self.chat = []
 
 
@@ -66,23 +67,45 @@ def schedule(room):
         room.timer.cancel()
         room.timer = None
     g = room.game
+    loop = asyncio.get_running_loop()
+    if room.host_timer:
+        room.host_timer.cancel()
+        room.host_timer = None
+    host = g.find(g.host_id)
+    if host and not host.connected:   # pass hosting on if the host doesn't come back in time
+        wait = max(0, host.left_at + HOST_GRACE - time.time()) + 0.5
+        room.host_timer = loop.call_later(wait, lambda: asyncio.ensure_future(broadcast(room)))
+    if g.paused:
+        return
     if g.phase == 'handover' and g.can_start_hand():
-        room.timer = asyncio.get_running_loop().call_later(NEXT_HAND_DELAY, fire, room, 'next')
+        room.timer = loop.call_later(NEXT_HAND_DELAY, fire, room, 'next', None)
     elif g.phase == 'declare':
         delay = max(0, g.declare_deadline - time.time())
-        room.timer = asyncio.get_running_loop().call_later(delay, fire, room, 'declare')
-    elif g.phase in STREETS + ['choosing'] and g.to_act >= 0 and not g.players[g.to_act].connected:
-        room.timer = asyncio.get_running_loop().call_later(DISCONNECT_GRACE, fire, room, 'auto')
+        room.timer = loop.call_later(delay, fire, room, 'declare', g.hand_no)
+    elif g.phase in STREETS + ['choosing'] and g.to_act >= 0:
+        delays = []
+        if g.turn_deadline:
+            delays.append(max(0, g.turn_deadline - time.time()))
+        if not g.players[g.to_act].connected:
+            delays.append(DISCONNECT_GRACE)
+        if delays:
+            key = (g.hand_no, g.phase, g.to_act, g.turn_deadline)
+            room.timer = loop.call_later(min(delays) + 0.1, fire, room, 'auto', key)
 
 
-def fire(room, kind):
+def fire(room, kind, key):
     room.timer = None
     g = room.game
-    if kind == 'next' and g.phase == 'handover':
+    if g.paused:
+        pass
+    elif kind == 'next' and g.phase == 'handover':
         g.start_hand()
-    elif kind == 'auto' and g.to_act >= 0 and not g.players[g.to_act].connected:
+    elif kind == 'auto' and key == (g.hand_no, g.phase, g.to_act, g.turn_deadline):
+        p = g.players[g.to_act]
+        if g.phase == 'choosing' or p.connected:
+            g.note(f'{p.name} ran out of time')
         g.auto_act()
-    elif kind == 'declare':
+    elif kind == 'declare' and key == g.hand_no:
         g.finish_declare()
     asyncio.ensure_future(broadcast(room))
 
@@ -115,6 +138,7 @@ async def ws_handler(request):
         if room and player and room.sockets.get(player.id) is ws:
             del room.sockets[player.id]
             player.connected = False
+            player.left_at = time.time()
             room.game.note(f'{player.name} disconnected')
             await broadcast(room)
     return ws
@@ -127,14 +151,14 @@ def attach(data, ws):
             raise ValueError('Enter your name')
         code = new_code()
         room = rooms[code] = Room(code)
-        return room, room.game.add_player(name)
+        return room, room.game.add_member(name)
     code = str(data.get('code', '')).strip().upper()
     room = rooms.get(code)
     if room is None:
         raise ValueError(f'No game with code {code}')
     g = room.game
     if data['type'] == 'resume':
-        p = next((p for p in g.players if p.token == data.get('token')), None)
+        p = next((p for p in g.members if p.token == data.get('token')), None)
         if p is None:
             raise ValueError('Your seat is no longer available')
         if p.kicked:
@@ -145,7 +169,7 @@ def attach(data, ws):
         return room, p
     if not name:
         raise ValueError('Enter your name')
-    same = next((p for p in g.players if p.name.lower() == name.lower()), None)
+    same = next((p for p in g.members if p.name.lower() == name.lower()), None)
     if same and same.kicked:
         raise ValueError('The host removed you from this game')
     if same and not same.connected:  # lost their tab: rejoining with the same name takes the seat back
@@ -153,9 +177,9 @@ def attach(data, ws):
         return room, same
     if same:
         raise ValueError('That name is taken at this table')
-    if sum(1 for p in g.players if not p.kicked) >= MAX_PLAYERS:
-        raise ValueError(f'Table is full ({MAX_PLAYERS} players max)')
-    return room, g.add_player(name)
+    if sum(1 for p in g.members if not p.kicked) >= MAX_MEMBERS:
+        raise ValueError('This game is full')
+    return room, g.add_member(name)
 
 
 def handle(room, p, t, data):
@@ -168,7 +192,7 @@ def handle(room, p, t, data):
         if g.started:
             raise ValueError('Game already started')
         if not g.start_hand():
-            raise ValueError('Need at least 2 players')
+            raise ValueError('Need at least 2 seated players with chips' if not g.paused else 'The game is paused')
     elif t == 'choose':
         g.choose_variant(p, data['variant'])
     elif t == 'act':
@@ -179,6 +203,22 @@ def handle(room, p, t, data):
         g.set_use(p, data['idx'])
     elif t == 'declare':
         g.declare(p, data['use'], data.get('side'))
+    elif t == 'sit':
+        g.request_seat(p, data['seat'])
+    elif t == 'unsit':
+        g.cancel_request(p)
+    elif t == 'answer':
+        g.answer_request(p, g.find(data.get('id')), bool(data.get('accept')))
+    elif t == 'settings':
+        g.update_settings(p, data.get('settings') or {})
+    elif t == 'pause':
+        g.set_paused(p, bool(data.get('value')))
+    elif t == 'makehost':
+        g.make_host(p, g.find(data.get('id')))
+    elif t == 'show':
+        g.show_cards(p)
+    elif t == 'emote':
+        g.emote_at(p, data.get('e'))
     elif t == 'rebuy':
         g.rebuy(p)
     elif t == 'cashout':
@@ -190,12 +230,11 @@ def handle(room, p, t, data):
         if ws is not None:
             asyncio.ensure_future(send_and_close(ws, {'type': 'kicked', 'message': 'The host removed you from this game'}))
     elif t == 'sitout':
-        p.sitting_out = bool(data.get('value'))
-        g.note(f'{p.name} is {"sitting out" if p.sitting_out else "back"}')
+        g.set_sitout(p, data.get('value'))
     elif t == 'chat':
         text = str(data.get('text', '')).strip()[:200]
         if text:
-            room.chat.append({'name': p.name, 'text': text})
+            room.chat.append({'name': p.name, 'id': p.id, 'text': text, 't': time.time()})
             room.chat = room.chat[-50:]
     else:
         raise ValueError('Unknown message')
